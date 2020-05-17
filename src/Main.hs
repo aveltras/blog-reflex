@@ -12,9 +12,9 @@ import qualified Network.Wai.Handler.Warp               as Warp
 import           Network.Wai.Middleware.Cors
 import           Network.Wai.Middleware.Gzip            (gzip)
 import           Network.Wai.Middleware.Vhost           (vhost)
-import           Network.Wai.Static.TH
-import           Network.WebSockets
-import           Reflex.Dom
+import           Network.Wai.Static.TH                  (mkStaticApp)
+import           Network.WebSockets                     (defaultConnectionOptions)
+import           Reflex.Dom.Core
 import           Reflex.Dom.Main                        as Main
 
 mkStaticApp "static"
@@ -42,7 +42,7 @@ app _request respond = do
         textD <- holdDyn "before click" $ "afterClick "<$ clickE
         dynText textD
 
-  respond $ responseLBS ok200 [("Content-Type", "text/html")] $ "<!doctype html>" <> BL.fromStrict html
+  respond $ responseLBS ok200 [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict html
 
 mainJS :: JSM ()
 mainJS = Main.mainWidget $ do
@@ -50,11 +50,3 @@ mainJS = Main.mainWidget $ do
   clickE <- button "click"
   textD <- holdDyn "before click" $ "afterClick "<$ clickE
   dynText textD
-
-widget :: Widget x ()
-widget = do
-  text "hello"
-  clickE <- button "click"
-  textD <- holdDyn "before click" $ "afterClick "<$ clickE
-  dynText textD
-

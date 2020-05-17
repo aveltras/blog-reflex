@@ -18,7 +18,6 @@ executable blog
                , jsaddle
                , jsaddle-warp
                , reflex
-               , reflex-dom
                , reflex-dom-core
                , text
                , wai
