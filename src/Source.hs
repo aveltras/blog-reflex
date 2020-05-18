@@ -8,6 +8,7 @@
 {-# LANGUAGE MultiParamTypeClasses      #-}
 {-# LANGUAGE PackageImports             #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeFamilies               #-}
 {-# LANGUAGE UndecidableInstances       #-}
 
@@ -18,6 +19,7 @@ import           Control.Monad                  (void)
 import           Control.Monad.Fix              (MonadFix)
 import           Control.Monad.IO.Class         (MonadIO, liftIO)
 import           Control.Monad.Reader.Class     (MonadReader, ask)
+import           Control.Monad.Ref
 import           Control.Monad.Trans.Class      (MonadTrans, lift)
 import           Control.Monad.Trans.Reader     (Reader, ReaderT, runReaderT)
 import           Data.Aeson
@@ -28,8 +30,10 @@ import           Data.Morpheus.Client
 import           Data.Text                      (Text)
 import qualified Data.Text                      as T
 import qualified Data.Text.Encoding             as T
+import           GHC.IORef
 import           "ghcjs-dom" GHCJS.DOM.Document (Document)
 import           GHCJS.DOM.Types                (MonadJSM)
+import           Network.HTTP.Req
 import           Reflex.Dom.Core
 import           Reflex.Host.Class
 import           UnliftIO.MVar
@@ -74,10 +78,73 @@ instance (Adjustable t m, MonadHold t m) => Adjustable t (SourceT t js m) where
   traverseIntMapWithKeyWithAdjust f m e = SourceT $ traverseIntMapWithKeyWithAdjust (\k v -> coerce $ f k v) m e
   traverseDMapWithKeyWithAdjustWithMove f m e = SourceT $ traverseDMapWithKeyWithAdjustWithMove (\k v -> coerce $ f k v) m e
 
-instance (Monad m, ReflexHost t, Reflex t) => HasSource t js (
+instance (MonadIO m, MonadIO (HostFrame t), ReflexHost t, Reflex t, Ref m ~ IORef) => HasSource t js (
   SourceT t js (HydratableT (PostBuildT t (StaticDomBuilderT t (PerformEventT t m)) ))
   ) where
-  fetchData queryE = pure never
+
+  -- fetchData :: (Fetch query, FromJSON query) => Event t (Args query) -> SourceT t js (HydratableT (PostBuildT t (StaticDomBuilderT t (PerformEventT t m)) )) (Event t (Either String query))
+  fetchData queryE = do
+    performEvent $ fetch xhrFetch <$> queryE
+
+    where
+
+      -- toPerformable :: Args query -> Performable m (Either String query)
+      -- toPerformable args = fetch xhrFetch args
+
+      xhrFetch queryBS = do
+        endpoint <- ask
+        runReq defaultHttpConfig $ do
+          r <-
+            req
+            POST -- method
+            (http "graphql.localhost") -- safe by construction URL
+            (ReqBodyLbs queryBS) -- use built-in options or add your own
+            lbsResponse -- specify how to interpret response
+            (port 3000) -- query params, headers, explicit port number, etc.
+          pure $ responseBody r
+
+  -- fetchData queryE = do
+  --   performEvent $ toPerformable <$> queryE
+
+  --   where
+
+  --     toPerformable args = fetch xhrFetch args
+
+  --     xhrFetch queryBS = do
+  --       endpoint <- ask
+
+  --       let req = xhrRequest "POST" endpoint $ def & xhrRequestConfig_sendData .~ BL.toStrict queryBS
+
+  --       resultVar <- newEmptyMVar
+  --       void $ newXMLHttpRequest req $ liftIO . putMVar resultVar
+  --       resp <- takeMVar resultVar
+
+  --       let body = case resp ^. xhrResponse_responseText of
+  --             Nothing  -> error "boom"
+  --             Just txt -> BL.fromStrict . T.encodeUtf8 $ txt
+
+  --       pure body
+
+
+-- main :: IO ()
+-- -- You can either make your monad an instance of 'MonadHttp', or use
+-- -- 'runReq' in any IO-enabled monad without defining new instances.
+-- main = runReq defaultHttpConfig $ do
+--   let payload =
+--         object
+--           [ "foo" .= (10 :: Int),
+--             "bar" .= (20 :: Int)
+--           ]
+--   -- One function—full power and flexibility, automatic retrying on timeouts
+--   -- and such, automatic connection sharing.
+--   r <-
+--     req
+--       POST -- method
+--       (https "httpbin.org" /: "post") -- safe by construction URL
+--       (ReqBodyJson payload) -- use built-in options or add your own
+--       jsonResponse -- specify how to interpret response
+--       mempty -- query params, headers, explicit port number, etc.
+--   liftIO $ print (responseBody r :: Value)
 
 instance (Monad m, Reflex t) => HasSource t js (SourceT t js (HydrationDomBuilderT js t m)) where
   fetchData queryE = pure never

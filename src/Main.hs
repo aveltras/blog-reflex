@@ -85,17 +85,18 @@ main = do
 app :: Application
 app request respond = do
 
-  (state, html) <- renderStatic' . runHydratableT $
+  (state, html) <- renderStatic' . runHydratableT . runSourceT "http://graphql.localhost:3000" $
     el "html" $ do
       el "head" $ do
         elAttr "script" ("src" =: "http://jsaddle.localhost:3000/jsaddle.js") blank
         elAttr "link" ("rel" =: "stylesheet" <> "href" =: ("http://static.localhost:3000/" <> test_css)) blank
       el "body" $ do
         text "hello"
+        buildE <- getPostBuild
         clickE <- button "click"
-        textD <- holdDyn "before click" $ "afterClick "<$ clickE
+        textD <- holdDyn "before click" $ "afterClick " <$ buildE
         dynText textD
-        runSourceT "http://graphql.localhost:3000" $ runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) appW
+        runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) appW
 
   let status = case state of
         Right _ -> ok200
@@ -106,8 +107,9 @@ app request respond = do
 mainJS :: JSM ()
 mainJS = Main.mainWidget $ do
   text "hello"
+  buildE <- getPostBuild
   clickE <- button "click"
-  textD <- holdDyn "before click" $ "afterClick "<$ clickE
+  textD <- holdDyn "before click" $ "afterClick "<$ buildE
   dynText textD
   _ <- runSourceT "http://graphql.localhost:3000" $ runViewT browserLocHandler appW
   blank
@@ -148,8 +150,9 @@ appW = do
 
 graphQLwidget :: (HasSource t js m, PostBuild t m, MonadHold t m, DomBuilder t m) => m ()
 graphQLwidget = do
+  buildE <- getPostBuild
   clickE <- button "click"
-  responseE :: Event t (Either String GetDeity) <- fetchData (GetDeityArgs "tac" <$ clickE)
+  responseE :: Event t (Either String GetDeity) <- fetchData (GetDeityArgs "tac" <$ buildE)
   -- responseE :: Event t (Either String GetDeity) <- xhrQuery
   responseD <- holdDyn "" $ ffor responseE $ \r -> case r of
     Left s  -> T.pack $ "Error ---->" <> s
@@ -192,6 +195,7 @@ api = interpreter rootResolver
 
 graphqlApp :: Application
 graphqlApp request respond = do
+  print "query"
   bs <- strictRequestBody request
   resp <- api bs
   respond $ responseLBS ok200 [(hContentType, "application/json")] resp
