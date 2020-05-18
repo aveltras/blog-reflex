@@ -1,12 +1,18 @@
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase       #-}
+{-# LANGUAGE FlexibleContexts    #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Main where
 
-import           Control.Monad                          (void)
+import           Control.Monad                          (forM_, void)
 import           Control.Monad.Fix                      (MonadFix)
+import           Control.Monad.Ref
+import qualified Data.ByteString                        as BS
+import qualified Data.ByteString.Builder                as B
 import qualified Data.ByteString.Lazy                   as BL
 import qualified Data.ByteString.Lazy.Char8             as C8
+import           Data.Dependent.Sum                     (DSum (..))
+import           Data.Functor.Identity                  (Identity (..))
 import qualified Data.Text                              as T
 import qualified Data.Text.Encoding                     as T
 import           Language.Javascript.JSaddle            (JSM, syncPoint)
@@ -21,6 +27,7 @@ import           Network.Wai.Static.TH                  (mkStaticApp)
 import           Network.WebSockets                     (defaultConnectionOptions)
 import           Reflex.Dom.Core
 import           Reflex.Dom.Main                        as Main
+import           Reflex.Host.Class
 import           Web.PathPieces
 
 import           Source
@@ -39,8 +46,9 @@ main = do
     ] $ const $ flip ($) (responseLBS status503 [] "Service unavailable")
 
 app :: Application
-app _request respond = do
-  (_, html) <- renderStatic $
+app request respond = do
+
+  (state, html) <- renderStatic' . runHydratableT $
     el "html" $ do
       el "head" $ do
         elAttr "script" ("src" =: "http://jsaddle.localhost:3000/jsaddle.js") blank
@@ -50,9 +58,13 @@ app _request respond = do
         clickE <- button "click"
         textD <- holdDyn "before click" $ "afterClick "<$ clickE
         dynText textD
-        void $ runViewT (constLocHandler "") appW
+        runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) appW
 
-  respond $ responseLBS ok200 [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict html
+  let status = case state of
+        Right _ -> ok200
+        Left _  -> status404
+
+  respond $ responseLBS status [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict html
 
 mainJS :: JSM ()
 mainJS = Main.mainWidget $ do
@@ -93,3 +105,17 @@ appW = do
                        linkTo HomeV $ text "go home"
                        linkTo ContactV $ text "go contact"
                ) <$> viewD
+
+{-# INLINE renderStatic' #-}
+renderStatic' :: StaticWidget x (Dynamic DomTimeline a) -> IO (a, BS.ByteString)
+renderStatic' w = do
+  runDomHost $ do
+    (postBuild, postBuildTriggerRef) <- newEventWithTriggerRef
+    nextRunWithReplaceKey <- newRef 0
+    let env0 = StaticDomBuilderEnv True Nothing nextRunWithReplaceKey
+    ((res, bs), FireCommand fire) <- hostPerformEventT $ runStaticDomBuilderT (runPostBuildT w postBuild) env0
+    mPostBuildTrigger <- readRef postBuildTriggerRef
+    forM_ mPostBuildTrigger $ \postBuildTrigger -> fire [postBuildTrigger :=> Identity ()] $ return ()
+    bs' <- sample bs
+    a <- sample . current $ res
+    return (a, BL.toStrict $ B.toLazyByteString bs')

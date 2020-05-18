@@ -13,6 +13,7 @@ executable blog
   build-depends: base
                , boomerang
                , bytestring
+               , dependent-sum
                , ghcjs-dom
                , hashable
                , http-types
@@ -21,6 +22,7 @@ executable blog
                , lens
                , mtl
                , path-pieces
+               , ref-tf
                , reflex
                , reflex-dom-core
                , text
