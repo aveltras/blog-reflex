@@ -1,5 +1,10 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase       #-}
+
 module Main where
 
+import           Control.Monad                          (void)
+import           Control.Monad.Fix                      (MonadFix)
 import qualified Data.ByteString.Lazy                   as BL
 import qualified Data.ByteString.Lazy.Char8             as C8
 import qualified Data.Text                              as T
@@ -16,6 +21,7 @@ import           Network.Wai.Static.TH                  (mkStaticApp)
 import           Network.WebSockets                     (defaultConnectionOptions)
 import           Reflex.Dom.Core
 import           Reflex.Dom.Main                        as Main
+import           Web.PathPieces
 
 import           Source
 import           View
@@ -44,6 +50,7 @@ app _request respond = do
         clickE <- button "click"
         textD <- holdDyn "before click" $ "afterClick "<$ clickE
         dynText textD
+        void $ runViewT (constLocHandler "") appW
 
   respond $ responseLBS ok200 [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict html
 
@@ -53,3 +60,36 @@ mainJS = Main.mainWidget $ do
   clickE <- button "click"
   textD <- holdDyn "before click" $ "afterClick "<$ clickE
   dynText textD
+  _ <- runViewT browserLocHandler appW
+  blank
+
+
+data View = HomeV
+          | ContactV
+
+instance PathPiece View where
+  fromPathPiece = \case
+    "" -> Just HomeV
+    "contact" -> Just ContactV
+    _ -> Nothing
+  toPathPiece = \case
+    HomeV -> ""
+    ContactV -> "contact"
+
+appW :: (DomBuilder t m, HasView t View ViewError m, PerformEvent t m, PostBuild t m) => m ()
+appW = do
+  viewD <- askView
+  void $ dyn $ (\case
+                   Right v -> case v of
+                     HomeV    -> do
+                       text "home"
+                       linkTo ContactV $ text "go contact"
+                     ContactV -> do
+                       text "contact"
+                       linkTo HomeV $ text "go home"
+                   Left e -> case e of
+                     ViewError -> do
+                       text "not found"
+                       linkTo HomeV $ text "go home"
+                       linkTo ContactV $ text "go contact"
+               ) <$> viewD

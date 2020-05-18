@@ -1,20 +1,27 @@
-{-# LANGUAGE DefaultSignatures      #-}
-{-# LANGUAGE FlexibleContexts       #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE LambdaCase             #-}
-{-# LANGUAGE MultiParamTypeClasses  #-}
-{-# LANGUAGE RecursiveDo            #-}
-{-# LANGUAGE ScopedTypeVariables    #-}
-{-# LANGUAGE TypeFamilies           #-}
+{-# LANGUAGE DataKinds                  #-}
+{-# LANGUAGE DefaultSignatures          #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE FunctionalDependencies     #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE RecursiveDo                #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE UndecidableInstances       #-}
 
 module View where
 
 import           Control.Lens                  hiding (element)
 import           Control.Monad.Fix             (MonadFix)
+import           Control.Monad.IO.Class        (MonadIO)
 import           Control.Monad.Trans.Class     (MonadTrans, lift)
-import           Control.Monad.Trans.Reader    (ReaderT, runReaderT)
+import           Control.Monad.Trans.Reader    (ReaderT, ask, runReaderT)
+import           Data.Coerce                   (coerce)
 import           Data.Proxy
 import           Data.Text                     (Text)
+import qualified Data.Text                     as T
 import qualified GHCJS.DOM                     as DOM
 import qualified GHCJS.DOM.EventM              as DOM
 import qualified GHCJS.DOM.History             as DOM
@@ -22,6 +29,8 @@ import qualified GHCJS.DOM.Window              as DOM
 import qualified GHCJS.DOM.WindowEventHandlers as DOM
 import           Language.Javascript.JSaddle   (MonadJSM)
 import           Reflex.Dom.Core
+import           Reflex.Host.Class             (MonadReflexCreateTrigger,
+                                                ReflexHost)
 import           Web.PathPieces
 
 
@@ -40,8 +49,79 @@ class (Monad m, PathPiece view) => HasView t view err m | m -> view, m -> err, m
   setError = lift . setError
 
 
+-- instance (MonadJSM m, RawDocument (DomBuilderSpace (HydrationDomBuilderT s t m)) ~ Document) => HasView t view err (HydrationDomBuilderT s t m) where
+  -- askView = fmap (parseCookies . encodeUtf8) $ getCookie =<< askDocument
+
+instance (HasView t view err m) => HasView t view err (StaticDomBuilderT t m)
+instance (HasView t view err m) => HasView t view err (PostBuildT t m)
+instance (HasView t view err m) => HasView t view err (HydrationDomBuilderT s t m)
+instance (HasView t view err m, ReflexHost t, MonadTrans (PerformEventT t)) => HasView t view err (PerformEventT t m)
+-- instance (HasView t view err m) => HasView t view err (WithJSContextSingleton x m)
+
+-- -- instance (HasRoute t r m) => HasRoute t r (BehaviorWriterT t w m)
+-- -- instance (HasRoute t r m) => HasRoute t r (DynamicWriterT t w m)
+-- -- instance (HasRoute t r m) => HasRoute t r (EventWriterT t w m)
+-- -- instance (HasRoute t r m, ReflexHost t, MonadTrans (PerformEventT t)) => HasRoute t r (PerformEventT t m)
+-- -- instance (HasRoute t r m) => HasRoute t r (PostBuildT t m)
+-- -- instance (HasRoute t r m) => HasRoute t r (QueryT t q m)
+-- -- instance (HasRoute t r m) => HasRoute t r (ReaderT r m)
+-- -- instance (HasRoute t r m) => HasRoute t r (RequesterT t request response m)
+-- -- instance (HasRoute t r m) => HasRoute t r (TriggerEventT t m)
+
 newtype ViewT t view err m a
   = ViewT { unViewT :: ReaderT (Dynamic t (Either err view)) (EventWriterT t (Either err view) m) a}
+  deriving
+    ( Functor
+    , Applicative
+    , Monad
+    , MonadIO
+    , DomBuilder t
+    , NotReady t
+    , PostBuild t
+    , PerformEvent t
+    , HasJSContext
+    )
+
+-- instance PerformEvent t m => PerformEvent t (ViewT t view err m) where
+--   type Performable (ViewT t view err m) = Performable m
+--   performEvent = lift . performEvent
+--   performEvent_ = lift . performEvent_
+
+--     ( Functor
+--     , Applicative
+--     , Monad
+--     , MonadFix
+--     , DomBuilder t
+--     , DomRenderHook t
+--     , HasDocument
+--     , HasJSContext
+--     , MonadReflexCreateTrigger t
+--     , MonadIO
+-- #ifndef ghcjs_HOST_OS
+--     , MonadJSM
+-- #endif
+--     , MonadHold t
+--     , MonadSample t
+--     , NotReady t
+--     , PerformEvent t
+--     , PostBuild t
+--     , TriggerEvent t
+--     )
+
+
+instance (Adjustable t m, MonadHold t m) => Adjustable t (ViewT t view err m) where
+  runWithReplace a e = ViewT $ runWithReplace (coerce a) (coerce <$> e)
+  traverseDMapWithKeyWithAdjust f m e = ViewT $ traverseDMapWithKeyWithAdjust (\k v -> coerce $ f k v) m e
+  traverseIntMapWithKeyWithAdjust f m e = ViewT $ traverseIntMapWithKeyWithAdjust (\k v -> coerce $ f k v) m e
+  traverseDMapWithKeyWithAdjustWithMove f m e = ViewT $ traverseDMapWithKeyWithAdjustWithMove (\k v -> coerce $ f k v) m e
+
+instance (Monad m, PathPiece view, Reflex t) => HasView t view err (ViewT t view err m) where
+  askView = ViewT ask
+  setView = ViewT . tellEvent . fmap Right
+  setError = ViewT . tellEvent . fmap Left
+
+instance MonadTrans (ViewT t view err) where
+  lift = undefined
 
 type LocationHandler t m = Event t Text -> m (Text, Event t Text)
 
@@ -56,11 +136,11 @@ runViewT ::
   , Reflex t
   ) => LocationHandler t m -> ViewT t view err m a -> m (Dynamic t (Either err view))
 runViewT locHandler (ViewT m) = mdo
-  (initialPath, locationE) <- locHandler $ (fmap toPathPiece . snd . fanEither) viewE
+  (initialPath, locationE) <- locHandler $ (fmap ((<>) "/". toPathPiece) . snd . fanEither) viewE
   viewD <- holdDyn (decodeLoc initialPath) $ leftmost [decodeLoc <$> locationE, viewE]
   (_result, viewE) <- runEventWriterT $ runReaderT m viewD
   pure viewD
-  where decodeLoc t = maybe (Left ViewError) Right $ fromPathPiece t
+  where decodeLoc t = maybe (Left ViewError) Right $ fromPathPiece $ T.dropWhile ((==) '/' )t
 
 constLocHandler :: (Monad m, Reflex t) => Text -> LocationHandler t m
 constLocHandler path = pure . const (path, never)
@@ -71,18 +151,16 @@ browserLocHandler internalLocE = mdo
   history <- DOM.getHistory window
   locationE <- wrapDomEvent window (`DOM.on` DOM.popState) getLocationPath
   performEvent_ $ ffor internalLocE $ DOM.pushState history (0 :: Double) ("" :: Text) . Just
-  path <- getLocationPath
-  pure $ (path, leftmost [internalLocE, locationE])
+  (,) <$> getLocationPath <*> (pure $ leftmost [internalLocE, locationE])
 
 linkTo :: forall t m a view err. (DomBuilder t m, HasView t view err m) => view -> m a -> m a
 linkTo v w = do
   let cfg = (def :: ElementConfig EventResult t (DomBuilderSpace m))
         & elementConfig_eventSpec %~ addEventSpecFlags (Proxy :: Proxy (DomBuilderSpace m)) Click (const preventDefault)
-        & elementConfig_initialAttributes .~ "href" =: (toPathPiece v)
+        & elementConfig_initialAttributes .~ "href" =: ("/" <> toPathPiece v)
   (e, a) <- element "a" cfg w
   setView $ v <$ domEvent Click e
   pure a
-
 
 
 
@@ -137,12 +215,6 @@ linkTo v w = do
 --     , PostBuild t
 --     )
 
--- instance (Adjustable t m, MonadHold t m) => Adjustable t (RouteT t route m) where
---   runWithReplace a e = RouteT $ runWithReplace (coerce a) (coerce <$> e)
---   traverseDMapWithKeyWithAdjust f m e = RouteT $ traverseDMapWithKeyWithAdjust (\k v -> coerce $ f k v) m e
---   traverseIntMapWithKeyWithAdjust f m e = RouteT $ traverseIntMapWithKeyWithAdjust (\k v -> coerce $ f k v) m e
---   traverseDMapWithKeyWithAdjustWithMove f m e = RouteT $ traverseDMapWithKeyWithAdjustWithMove (\k v -> coerce $ f k v) m e
-
 -- instance (Monad m, Reflex t, Route route) => HasRoute t route (RouteT t route m) where
 --   askRoute = RouteT ask
 --   setRoute = RouteT . tellEvent . fmap Right
@@ -192,16 +264,6 @@ linkTo v w = do
 --   showRoute = lift . showRoute
 
 
--- -- instance (HasRoute t r m) => HasRoute t r (BehaviorWriterT t w m)
--- -- instance (HasRoute t r m) => HasRoute t r (DynamicWriterT t w m)
--- -- instance (HasRoute t r m) => HasRoute t r (EventWriterT t w m)
--- -- instance (HasRoute t r m, ReflexHost t, MonadTrans (PerformEventT t)) => HasRoute t r (PerformEventT t m)
--- -- instance (HasRoute t r m) => HasRoute t r (PostBuildT t m)
--- -- instance (HasRoute t r m) => HasRoute t r (QueryT t q m)
--- -- instance (HasRoute t r m) => HasRoute t r (ReaderT r m)
--- -- instance (HasRoute t r m) => HasRoute t r (RequesterT t request response m)
--- -- instance (HasRoute t r m) => HasRoute t r (StaticDomBuilderT t m)
--- -- instance (HasRoute t r m) => HasRoute t r (TriggerEventT t m)
 
 
 -- data ViewError = NotFound
