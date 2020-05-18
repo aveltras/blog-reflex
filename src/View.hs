@@ -56,7 +56,7 @@ class (Monad m, PathPiece view) => HasView t view err m | m -> view, m -> err, m
 instance (HasView t view err m) => HasView t view err (StaticDomBuilderT t m)
 instance (HasView t view err m) => HasView t view err (PostBuildT t m)
 instance (HasView t view err m) => HasView t view err (HydrationDomBuilderT s t m)
--- instance (HasView t view err m) => HasView t view err (HydratableT m)
+instance (HasView t view err m) => HasView t view err (HydratableT m)
 instance (HasView t view err m, ReflexHost t, MonadTrans (PerformEventT t)) => HasView t view err (PerformEventT t m)
 -- instance (HasView t view err m) => HasView t view err (WithJSContextSingleton x m)
 

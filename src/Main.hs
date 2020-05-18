@@ -109,7 +109,7 @@ mainJS = Main.mainWidget $ do
   text "hello"
   buildE <- getPostBuild
   clickE <- button "click"
-  textD <- holdDyn "before click" $ "afterClick "<$ buildE
+  textD <- holdDyn "before click" $ "afterClick " <$ leftmost [buildE, clickE]
   dynText textD
   _ <- runSourceT "http://graphql.localhost:3000" $ runViewT browserLocHandler appW
   blank
@@ -152,7 +152,7 @@ graphQLwidget :: (HasSource t js m, PostBuild t m, MonadHold t m, DomBuilder t m
 graphQLwidget = do
   buildE <- getPostBuild
   clickE <- button "click"
-  responseE :: Event t (Either String GetDeity) <- fetchData (GetDeityArgs "tac" <$ buildE)
+  responseE :: Event t (Either String GetDeity) <- fetchData (GetDeityArgs "tac" <$ leftmost [buildE, clickE])
   -- responseE :: Event t (Either String GetDeity) <- xhrQuery
   responseD <- holdDyn "" $ ffor responseE $ \r -> case r of
     Left s  -> T.pack $ "Error ---->" <> s

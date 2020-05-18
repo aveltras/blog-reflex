@@ -88,9 +88,6 @@ instance (MonadIO m, MonadIO (HostFrame t), ReflexHost t, Reflex t, Ref m ~ IORe
 
     where
 
-      -- toPerformable :: Args query -> Performable m (Either String query)
-      -- toPerformable args = fetch xhrFetch args
-
       xhrFetch queryBS = do
         endpoint <- ask
         runReq defaultHttpConfig $ do
@@ -103,63 +100,8 @@ instance (MonadIO m, MonadIO (HostFrame t), ReflexHost t, Reflex t, Ref m ~ IORe
             (port 3000) -- query params, headers, explicit port number, etc.
           pure $ responseBody r
 
-  -- fetchData queryE = do
-  --   performEvent $ toPerformable <$> queryE
-
-  --   where
-
-  --     toPerformable args = fetch xhrFetch args
-
-  --     xhrFetch queryBS = do
-  --       endpoint <- ask
-
-  --       let req = xhrRequest "POST" endpoint $ def & xhrRequestConfig_sendData .~ BL.toStrict queryBS
-
-  --       resultVar <- newEmptyMVar
-  --       void $ newXMLHttpRequest req $ liftIO . putMVar resultVar
-  --       resp <- takeMVar resultVar
-
-  --       let body = case resp ^. xhrResponse_responseText of
-  --             Nothing  -> error "boom"
-  --             Just txt -> BL.fromStrict . T.encodeUtf8 $ txt
-
-  --       pure body
-
-
--- main :: IO ()
--- -- You can either make your monad an instance of 'MonadHttp', or use
--- -- 'runReq' in any IO-enabled monad without defining new instances.
--- main = runReq defaultHttpConfig $ do
---   let payload =
---         object
---           [ "foo" .= (10 :: Int),
---             "bar" .= (20 :: Int)
---           ]
---   -- One function—full power and flexibility, automatic retrying on timeouts
---   -- and such, automatic connection sharing.
---   r <-
---     req
---       POST -- method
---       (https "httpbin.org" /: "post") -- safe by construction URL
---       (ReqBodyJson payload) -- use built-in options or add your own
---       jsonResponse -- specify how to interpret response
---       mempty -- query params, headers, explicit port number, etc.
---   liftIO $ print (responseBody r :: Value)
-
 instance (Monad m, Reflex t) => HasSource t js (SourceT t js (HydrationDomBuilderT js t m)) where
   fetchData queryE = pure never
-
--- (HasSource
---                          (SpiderTimeline Global)
---                          (JSCtx_JavaScriptCore x)
---                          (SourceT
---                             (SpiderTimeline Global)
---                             js0
---                             (HydrationDomBuilderT
---                                GhcjsDomSpace DomTimeline (DomCoreWidget x))))
-
--- instance (Monad m, Reflex t) => HasSource t js (SourceT t js m) where
---   fetchData queryE = pure never
 
 -- instance (Monad m, Reflex t, HasJSContext (Performable m), MonadJSM (Performable m), PerformEvent t m) => HasSource t GhcjsDomSpace (SourceT t GhcjsDomSpace m) where
 instance (Monad m, Reflex t, HasJSContext (Performable m), MonadJSM (Performable m), PerformEvent t m) =>
@@ -189,49 +131,3 @@ instance (Monad m, Reflex t, HasJSContext (Performable m), MonadJSM (Performable
 
 runSourceT :: Text -> SourceT t js m a -> m a
 runSourceT cs (SourceT m) = runReaderT m cs
-
--- graphQLwidget :: (PostBuild t m, MonadHold t m, DomBuilder t m, XhrConstraints t m) => m ()
--- graphQLwidget = do
---   clickE <- button "click"
---   responseE :: Event t (Either String GetDeity) <- xhrQuery (GetDeityArgs "tac" <$ clickE)
---   responseD <- holdDyn "" $ ffor responseE $ \r -> case r of
---     Left s  -> T.pack $ "Error ---->" <> s
---     Right g -> T.pack $ "Success ---> " <> show g
---   display responseD
---   blank
-
-
--- type XhrConstraints t m = (HasJSContext (Performable m), MonadJSM (Performable m), PerformEvent t m, HasJSContext m, MonadIO m, MonadJSM m)
-
--- xhrQuery :: forall query m t. (XhrConstraints t m, FromJSON query, Fetch query) => Event t (Args query) -> m (Event t (Either String query))
--- xhrQuery queryE = performEvent $ toPerformable <$> queryE
-
-
-
-
-
-
--- instance (MonadJSM m, RawDocument (DomBuilderSpace (HydrationDomBuilderT s t m)) ~ Document) => HasSource t (HydrationDomBuilderT GhcjsDomSpace t m) where
---   fetchData = undefined
-
--- instance HasCookies Snap where
---   askCookies = map (\c -> (cookieName c, cookieValue c)) <$> getsRequest rqCookies
-
-
-
--- instance (Monad m) => HasSource t (StaticDomBuilderT t m) where
---   fetchData = undefined
-
--- instance (MonadJSM m, RawDocument (DomBuilderSpace (HydrationDomBuilderT s t m)) ~ Document) => HasSource t (HydrationDomBuilderT HydrationDomSpace t m) where
---   fetchData = undefined
-
--- instance (MonadJSM m, RawDocument (DomBuilderSpace (HydrationDomBuilderT s t m)) ~ Document) => HasSource t (HydrationDomBuilderT GhcjsDomSpace t m) where
---   fetchData = undefined
-
--- instance HasCookies Snap where
---   askCookies = map (\c -> (cookieName c, cookieValue c)) <$> getsRequest rqCookies
-
--- instance (MonadJSM m, RawDocument (DomBuilderSpace (HydrationDomBuilderT s t m)) ~ Document) => HasCookies (HydrationDomBuilderT s t m) where
---   askCookies = fmap (parseCookies . encodeUtf8) $ getCookie =<< askDocument
-
-
