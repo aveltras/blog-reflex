@@ -10,7 +10,8 @@ executable blog
                     , TemplateHaskell
   default-language: Haskell2010
   ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints
-  build-depends: base
+  build-depends: aeson
+               , base
                , boomerang
                , bytestring
                , dependent-sum
@@ -20,6 +21,9 @@ executable blog
                , jsaddle
                , jsaddle-warp
                , lens
+               , morpheus-graphql
+               , morpheus-graphql-core
+               , morpheus-graphql-client
                , mtl
                , path-pieces
                , ref-tf
@@ -27,6 +31,7 @@ executable blog
                , reflex-dom-core
                , text
                , transformers
+               , unliftio
                , wai
                , wai-cors
                , wai-extra

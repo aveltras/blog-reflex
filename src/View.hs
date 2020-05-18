@@ -79,6 +79,7 @@ newtype ViewT t view err m a
     , PostBuild t
     , PerformEvent t
     , HasJSContext
+    , Prerender js t
     )
 
 instance (Adjustable t m, MonadHold t m) => Adjustable t (ViewT t view err m) where
