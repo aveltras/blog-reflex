@@ -95,7 +95,7 @@ app request respond = do
         clickE <- button "click"
         textD <- holdDyn "before click" $ "afterClick "<$ clickE
         dynText textD
-        runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) appW
+        runSourceT "http://graphql.localhost:3000" $ runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) appW
 
   let status = case state of
         Right _ -> ok200
@@ -109,7 +109,7 @@ mainJS = Main.mainWidget $ do
   clickE <- button "click"
   textD <- holdDyn "before click" $ "afterClick "<$ clickE
   dynText textD
-  _ <- runViewT browserLocHandler appW
+  _ <- runSourceT "http://graphql.localhost:3000" $ runViewT browserLocHandler appW
   blank
 
 
@@ -127,7 +127,7 @@ instance PathPiece View where
     HomeV -> ""
     ContactV -> "contact"
 
-appW :: (DomBuilder t m, HasView t View ViewError m, PerformEvent t m, Prerender js t m, PostBuild t m) => m ()
+appW :: (DomBuilder t m, MonadHold t m, HasSource t js m, HasView t View ViewError m, PerformEvent t m, Prerender js t m, PostBuild t m) => m ()
 appW = do
   viewD <- askView
   void $ dyn $ (\case
@@ -135,7 +135,7 @@ appW = do
                      HomeV    -> do
                        text "home"
                        linkTo ContactV $ text "go contact"
-                       prerender_ blank graphQLwidget
+                       graphQLwidget
                      ContactV -> do
                        text "contact"
                        linkTo HomeV $ text "go home"
@@ -146,10 +146,11 @@ appW = do
                        linkTo ContactV $ text "go contact"
                ) <$> viewD
 
-graphQLwidget :: (PostBuild t m, MonadHold t m, DomBuilder t m, XhrConstraints t m) => m ()
+graphQLwidget :: (HasSource t js m, PostBuild t m, MonadHold t m, DomBuilder t m) => m ()
 graphQLwidget = do
   clickE <- button "click"
-  responseE :: Event t (Either String GetDeity) <- xhrQuery (GetDeityArgs "tac" <$ clickE)
+  responseE :: Event t (Either String GetDeity) <- fetchData (GetDeityArgs "tac" <$ clickE)
+  -- responseE :: Event t (Either String GetDeity) <- xhrQuery
   responseD <- holdDyn "" $ ffor responseE $ \r -> case r of
     Left s  -> T.pack $ "Error ---->" <> s
     Right g -> T.pack $ "Success ---> " <> show g

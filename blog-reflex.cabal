@@ -29,6 +29,7 @@ executable blog
                , ref-tf
                , reflex
                , reflex-dom-core
+               , req
                , text
                , transformers
                , unliftio
