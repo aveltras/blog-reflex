@@ -25,6 +25,8 @@ import qualified Data.ByteString.Lazy                   as BL
 import qualified Data.ByteString.Lazy.Char8             as C8
 import           Data.Dependent.Sum                     (DSum (..))
 import           Data.Functor.Identity                  (Identity (..))
+import           Data.Map
+import qualified Data.Map                               as Map
 import           Data.Text                              (Text)
 import qualified Data.Text                              as T
 import qualified Data.Text.Encoding                     as T
@@ -45,6 +47,7 @@ import           Reflex.Host.Class
 import           UnliftIO.Concurrent
 import           Web.PathPieces
 
+import           Data.Hashable
 import           Data.Morpheus                          (interpreter)
 import           Data.Morpheus.Client
 import           Data.Morpheus.Document
@@ -70,6 +73,7 @@ defineByDocumentFile
     }
   |]
 
+instance Hashable GetDeityArgs
 
 main :: IO ()
 main = do
@@ -85,7 +89,7 @@ main = do
 app :: Application
 app request respond = do
 
-  (state, html) <- renderStatic' . runHydratableT . runSourceT "http://graphql.localhost:3000" $
+  (state, html) <- renderStatic' . runHydratableT . runSourceT ("http://graphql.localhost:3000", constant Map.empty) $
     el "html" $ do
       el "head" $ do
         elAttr "script" ("src" =: "http://jsaddle.localhost:3000/jsaddle.js") blank
@@ -111,7 +115,7 @@ mainJS = Main.mainWidget $ do
   clickE <- button "click"
   textD <- holdDyn "before click" $ "afterClick " <$ leftmost [buildE, clickE]
   dynText textD
-  _ <- runSourceT "http://graphql.localhost:3000" $ runViewT browserLocHandler appW
+  _ <- runSourceT ("http://graphql.localhost:3000", constant Map.empty) $ runViewT browserLocHandler appW
   blank
 
 

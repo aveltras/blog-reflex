@@ -26,7 +26,10 @@ import           Data.Aeson
 import qualified Data.ByteString.Lazy           as BL
 import           Data.Coerce                    (coerce)
 import           Data.Hashable
+import           Data.Map                       (Map)
+import qualified Data.Map                       as Map
 import           Data.Morpheus.Client
+import           Data.Proxy                     (Proxy (..))
 import           Data.Text                      (Text)
 import qualified Data.Text                      as T
 import qualified Data.Text.Encoding             as T
@@ -36,12 +39,14 @@ import           GHCJS.DOM.Types                (MonadJSM)
 import           Network.HTTP.Req
 import           Reflex.Dom.Core
 import           Reflex.Host.Class
+import           Type.Reflection
 import           UnliftIO.MVar
 
 class (Monad m, Reflex t) => HasSource t js m | m -> t js where
-  fetchData :: (Fetch query, FromJSON query) => Event t (Args query) -> m (Event t (Either String query))
-  default fetchData :: (Fetch query, HasSource t s m', m ~ tx m', MonadTrans tx, FromJSON query) => Event t (Args query) -> m (Event t (Either String query))
+  fetchData :: forall query. (Typeable query, Fetch query, Hashable (Args query), FromJSON query) => Event t (Args query) -> m (Event t (Either String query))
+  default fetchData :: forall query m' tx. (Typeable query, Fetch query, Hashable (Args query), HasSource t js m', m ~ tx m', MonadTrans tx, FromJSON query) => Event t (Args query) -> m (Event t (Either String query))
   fetchData = lift . fetchData
+
 
 instance HasSource t js m => HasSource t js (ReaderT r m)
 instance HasSource t js m => HasSource t js (EventWriterT t w m)
@@ -51,8 +56,10 @@ instance HasSource t js m => HasSource t js (PostBuildT t m)
 instance HasSource t js m => HasSource t js (HydratableT m)
 instance (HasSource t js m, ReflexHost t, MonadTrans (PerformEventT t)) => HasSource t js (PerformEventT t m)
 
+type SourceEnv t = (Text, Behavior t (Map (Int, SomeTypeRep) SomeTypeRep))
+
 newtype SourceT t s m a
-  = SourceT { unSourceT :: ReaderT Text m a}
+  = SourceT { unSourceT :: ReaderT (SourceEnv t) m a}
   deriving
     ( Functor
     , Applicative
@@ -60,7 +67,7 @@ newtype SourceT t s m a
     , DomBuilder t
     , NotReady t
     , MonadIO
-    , MonadReader Text
+    , MonadReader (SourceEnv t)
     , MonadHold t
     , MonadJSM
     , MonadSample t
@@ -78,18 +85,31 @@ instance (Adjustable t m, MonadHold t m) => Adjustable t (SourceT t js m) where
   traverseIntMapWithKeyWithAdjust f m e = SourceT $ traverseIntMapWithKeyWithAdjust (\k v -> coerce $ f k v) m e
   traverseDMapWithKeyWithAdjustWithMove f m e = SourceT $ traverseDMapWithKeyWithAdjustWithMove (\k v -> coerce $ f k v) m e
 
+-- type SourceEnv t = (Text, Behavior t (Map (Int, SomeTypeRep) Bool))
+
 instance (MonadIO m, MonadIO (HostFrame t), ReflexHost t, Reflex t, Ref m ~ IORef) => HasSource t js (
   SourceT t js (HydratableT (PostBuildT t (StaticDomBuilderT t (PerformEventT t m)) ))
   ) where
 
-  -- fetchData :: (Fetch query, FromJSON query) => Event t (Args query) -> SourceT t js (HydratableT (PostBuildT t (StaticDomBuilderT t (PerformEventT t m)) )) (Event t (Either String query))
+  fetchData :: forall query. (Typeable query, Fetch query, Hashable (Args query), FromJSON query) => Event t (Args query) -> SourceT t js (HydratableT (PostBuildT t (StaticDomBuilderT t (PerformEventT t m)) )) (Event t (Either String query))
   fetchData queryE = do
-    performEvent $ fetch xhrFetch <$> queryE
+
+    (_endpoint, cache) <- ask
+
+    lookupCache :: Map (Int, SomeTypeRep) SomeTypeRep <- sample cache
+
+    performEvent $ do
+      coincidence $ ffor queryE $ \(args) -> do
+        case Map.lookup (hash args, someTypeRep (Proxy :: Proxy query)) lookupCache of
+          Just (rep) -> case typeRep @query `eqTypeRep` (typeOf rep) of
+            Just HRefl -> (pure $ Right rep) <$ queryE
+            Nothing    -> fetch xhrFetch <$> queryE
+          Nothing         -> fetch xhrFetch <$> queryE
 
     where
 
       xhrFetch queryBS = do
-        endpoint <- ask
+
         runReq defaultHttpConfig $ do
           r <-
             req
@@ -108,14 +128,12 @@ instance (Monad m, Reflex t, HasJSContext (Performable m), MonadJSM (Performable
   HasSource t js (SourceT t js (HydrationDomBuilderT GhcjsDomSpace t m)) where
 
   fetchData queryE = do
-    performEvent $ toPerformable <$> queryE
+    performEvent $ fetch xhrFetch <$> queryE
 
     where
 
-      toPerformable args = fetch xhrFetch args
-
       xhrFetch queryBS = do
-        endpoint <- ask
+        (endpoint, _) <- ask
 
         let req = xhrRequest "POST" endpoint $ def & xhrRequestConfig_sendData .~ BL.toStrict queryBS
 
@@ -129,5 +147,5 @@ instance (Monad m, Reflex t, HasJSContext (Performable m), MonadJSM (Performable
 
         pure body
 
-runSourceT :: Text -> SourceT t js m a -> m a
+runSourceT :: SourceEnv t -> SourceT t js m a -> m a
 runSourceT cs (SourceT m) = runReaderT m cs
