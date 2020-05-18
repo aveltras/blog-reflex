@@ -17,6 +17,9 @@ import           Network.WebSockets                     (defaultConnectionOption
 import           Reflex.Dom.Core
 import           Reflex.Dom.Main                        as Main
 
+import           Source
+import           View
+
 mkStaticApp "static"
 
 main :: IO ()

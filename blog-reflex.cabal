@@ -9,17 +9,22 @@ executable blog
   default-extensions: OverloadedStrings
                     , TemplateHaskell
   default-language: Haskell2010
-  ghc-options: -O0 -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints
+  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints
   build-depends: base
                , boomerang
                , bytestring
+               , ghcjs-dom
                , hashable
                , http-types
                , jsaddle
                , jsaddle-warp
+               , lens
+               , mtl
+               , path-pieces
                , reflex
                , reflex-dom-core
                , text
+               , transformers
                , wai
                , wai-cors
                , wai-extra
