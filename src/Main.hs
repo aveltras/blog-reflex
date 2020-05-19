@@ -34,6 +34,7 @@ import           Data.Functor.Identity                  (Identity (..))
 import           Data.Map
 import qualified Data.Map                               as Map
 import           Data.Maybe                             (isJust)
+import           Data.Monoid                            (Sum (..), getSum)
 import           Data.Text                              (Text)
 import qualified Data.Text                              as T
 import qualified Data.Text.Encoding                     as T
@@ -155,8 +156,8 @@ instance (Monoid a, Eq a) => Q.Query (MyQuery a) where
 
 -- instance (Semigroup a) => Additive (MyQuery a)
 
-instance Group String where
-  negateG = const ""
+instance Num a => Group (Sum a) where
+  negateG (Sum i) = Sum $ negate i
 
 -- data QueryGQL a = QueryGQL (MonoidalMap Int a)
 --   deriving (Eq, Functor)
@@ -198,12 +199,12 @@ xhrQuery queryE = performEvent $ toPerformable <$> queryE
       pure body
 
 
-queryHandlerXhr :: (XhrConstraints t m, PostBuild t m, Monad m, Reflex t, MonadHold t m) => Dynamic t (MyQuery String) -> m (Dynamic t (QueryResult (MyQuery String)))
+queryHandlerXhr :: (XhrConstraints t m, PostBuild t m, Monad m, Reflex t, MonadHold t m) => Dynamic t (MyQuery (Sum Int)) -> m (Dynamic t (QueryResult (MyQuery (Sum Int))))
 queryHandlerXhr queryD = do
   buildE <- getPostBuild
   let queryE = updated queryD
-  respE :: Event t (MonoidalMap Int XhrResponse) <- performRequestsAsync ((\(MyQuery m) -> postJson "http://api.localhost:3000" <$> m) <$> (leftmost [queryE, tagPromptlyDyn queryD buildE]))
-  holdDyn MMap.empty $ (filterMaybes <$> ((fmap . fmap) decodeXhrResponse respE))
+  respE :: Event t (MonoidalMap Int XhrResponse) <- performRequestsAsync ((\(MyQuery m) -> (postJson "http://api.localhost:3000" . getSum) <$> m) <$> (leftmost [queryE, tagPromptlyDyn queryD buildE]))
+  holdDyn MMap.empty $ (filterMaybes <$> ((fmap . fmap) (fmap Sum . decodeXhrResponse) respE))
 
   where
 
@@ -234,12 +235,12 @@ queryW = do
     nubbedVs <- holdUniqDyn $ incrementalToDynamic vs
   blank
 
-widgetWithQuery :: (XhrConstraints t m, MonadFix m, MonadHold t m, MonadQuery t (MyQuery String) m, PostBuild t m, DomBuilder t m) => m ()
+widgetWithQuery :: (XhrConstraints t m, MonadFix m, MonadHold t m, MonadQuery t (MyQuery (Sum Int)) m, PostBuild t m, DomBuilder t m) => m ()
 widgetWithQuery = do
   clickE <- button "click"
   countD <- count clickE
-  resultD <- queryDynUniq $ ffor countD $ \str -> MyQuery $ MMap.singleton (5 :: Int) (show str)
-  let textD = ffor (traceDyn "debug" resultD) (\m -> maybe "nothing" (T.pack) $ MMap.lookup (5 :: Int) m)
+  resultD <- queryDynUniq $ ffor countD $ \str -> MyQuery $ MMap.singleton (5 :: Int) (Sum str)
+  let textD = ffor (traceDyn "debug" resultD) (\m -> maybe "nothing" (T.pack . show . getSum) $ MMap.lookup (5 :: Int) m)
   dynText textD
   blank
 
