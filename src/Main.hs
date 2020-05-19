@@ -1,23 +1,26 @@
-{-# LANGUAGE ConstraintKinds       #-}
-{-# LANGUAGE DeriveFunctor         #-}
-{-# LANGUAGE DeriveGeneric         #-}
-{-# LANGUAGE DerivingStrategies    #-}
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE LambdaCase            #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE NamedFieldPuns        #-}
-{-# LANGUAGE QuasiQuotes           #-}
-{-# LANGUAGE RecursiveDo           #-}
-{-# LANGUAGE ScopedTypeVariables   #-}
-{-# LANGUAGE TypeApplications      #-}
-{-# LANGUAGE TypeFamilies          #-}
-{-# LANGUAGE TypeSynonymInstances  #-}
+{-# LANGUAGE ConstraintKinds            #-}
+{-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE DeriveGeneric              #-}
+{-# LANGUAGE DerivingStrategies         #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LambdaCase                 #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE NamedFieldPuns             #-}
+{-# LANGUAGE PartialTypeSignatures      #-}
+{-# LANGUAGE QuasiQuotes                #-}
+{-# LANGUAGE RecursiveDo                #-}
+{-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TypeApplications           #-}
+{-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE TypeSynonymInstances       #-}
+{-# LANGUAGE UndecidableInstances       #-}
 
 module Main where
 
 import           Control.Lens
-import           Control.Monad                          (forM_, void)
+import           Control.Monad                          (forM_, void, (<=<))
 import           Control.Monad.Fix                      (MonadFix)
 import           Control.Monad.IO.Class                 (MonadIO, liftIO)
 import           Control.Monad.Ref
@@ -127,24 +130,30 @@ app request respond = do
 
   respond $ responseLBS status [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict html
 
-data MyQuery a = MyQuery (MonoidalMap Int a)
-  deriving (Eq, Functor)
+-- type MyQuery a = MonoidalMap Int a
+
+newtype MyQuery a = MyQuery (MonoidalMap Int a)
+  deriving (Eq, Monoid, Semigroup, Group, Additive)
+
+
+-- instance Functor MyQuery where
+  -- fmap (MyQuery m) = fmap m
 
 instance (Monoid a, Eq a) => Q.Query (MyQuery a) where
   type QueryResult (MyQuery a) = MonoidalMap Int a
-  crop map res = res
+  crop (MyQuery (m :: _)) (res :: _) = res -- MMap.filter (\(k :: _) -> MMap.member k m) res
 
-instance (Group a) => Group (MyQuery a) where
-  negateG = fmap negateG
+-- instance (Group a) => Group (MyQuery a) where
+--   negateG = fmap negateG
 
-instance (Semigroup a) => Semigroup (MyQuery a) where
-  (<>) (MyQuery a) (MyQuery b) = MyQuery $ a <> b
+-- instance (Semigroup a) => Semigroup (MyQuery a) where
+--   (<>) (MyQuery a) (MyQuery b) = MyQuery $ a <> b
 
-instance (Monoid a) => Monoid (MyQuery a) where
-  mempty = MyQuery MMap.empty
-  mappend = (<>)
+-- instance (Monoid a) => Monoid (MyQuery a) where
+--   mempty = MyQuery MMap.empty
+--   mappend = (<>)
 
-instance (Semigroup a) => Additive (MyQuery a)
+-- instance (Semigroup a) => Additive (MyQuery a)
 
 instance Group String where
   negateG = const ""
@@ -191,17 +200,30 @@ xhrQuery queryE = performEvent $ toPerformable <$> queryE
 
 queryHandlerXhr :: (XhrConstraints t m, PostBuild t m, Monad m, Reflex t, MonadHold t m) => Dynamic t (MyQuery String) -> m (Dynamic t (QueryResult (MyQuery String)))
 queryHandlerXhr queryD = do
+  buildE <- getPostBuild
   let queryE = updated queryD
-  respE :: Event t (MonoidalMap Int XhrResponse) <- performRequestsAsync ((\(MyQuery m) -> postJson "http://api.localhost:3000" <$> m) <$> queryE)
+  respE :: Event t (MonoidalMap Int XhrResponse) <- performRequestsAsync ((\(MyQuery m) -> postJson "http://api.localhost:3000" <$> m) <$> (leftmost [queryE, tagPromptlyDyn queryD buildE]))
   holdDyn MMap.empty $ (filterMaybes <$> ((fmap . fmap) decodeXhrResponse respE))
 
   where
+
     filterMaybes :: (Semigroup a, Ord k) => MonoidalMap k (Maybe a) -> MonoidalMap k a
     filterMaybes = MMap.foldMapWithKey f
 
     f :: (Semigroup a, Ord k) => k -> Maybe a -> MonoidalMap k a
     f k (Just a) = MMap.singleton k a
     f k Nothing  = mempty
+
+queryDynUniq :: ( Monad m
+                , Reflex t
+                , MonadQuery t q m
+                , MonadHold t m
+                , MonadFix m
+                , Eq (QueryResult q)
+                )
+             => Dynamic t q
+             -> m (Dynamic t (QueryResult q))
+queryDynUniq = holdUniqDyn <=< queryDyn
 
 
 queryW :: (XhrConstraints t m, Reflex t, MonadHold t m, DomBuilder t m, MonadFix m, PostBuild t m, MonadHold t m) => m ()
@@ -216,8 +238,8 @@ widgetWithQuery :: (XhrConstraints t m, MonadFix m, MonadHold t m, MonadQuery t 
 widgetWithQuery = do
   clickE <- button "click"
   countD <- count clickE
-  resultD <- queryDyn $ ffor countD $ \str -> MyQuery $ MMap.singleton str (show str)
-  let textD = ffor2 countD resultD (\int m -> maybe "nothing" (T.pack) $ MMap.lookup int m)
+  resultD <- queryDynUniq $ ffor countD $ \str -> MyQuery $ MMap.singleton (5 :: Int) (show str)
+  let textD = ffor (traceDyn "debug" resultD) (\m -> maybe "nothing" (T.pack) $ MMap.lookup (5 :: Int) m)
   dynText textD
   blank
 
