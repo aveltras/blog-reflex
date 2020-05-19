@@ -2,6 +2,7 @@
 {-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DerivingStrategies         #-}
+{-# LANGUAGE ExistentialQuantification  #-}
 {-# LANGUAGE FlexibleContexts           #-}
 {-# LANGUAGE FlexibleInstances          #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -10,10 +11,12 @@
 {-# LANGUAGE NamedFieldPuns             #-}
 {-# LANGUAGE PartialTypeSignatures      #-}
 {-# LANGUAGE QuasiQuotes                #-}
+{-# LANGUAGE RankNTypes                 #-}
 {-# LANGUAGE RecursiveDo                #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TypeApplications           #-}
 {-# LANGUAGE TypeFamilies               #-}
+{-# LANGUAGE TypeOperators              #-}
 {-# LANGUAGE TypeSynonymInstances       #-}
 {-# LANGUAGE UndecidableInstances       #-}
 
@@ -38,6 +41,7 @@ import           Data.Monoid                            (Sum (..), getSum)
 import           Data.Text                              (Text)
 import qualified Data.Text                              as T
 import qualified Data.Text.Encoding                     as T
+import           GHC.Generics
 import           Language.Javascript.JSaddle            (JSM, MonadJSM,
                                                          syncPoint)
 import qualified Language.Javascript.JSaddle.WebSockets as JW
@@ -53,6 +57,7 @@ import           Reflex.Dom.Core                        hiding (Query)
 import           Reflex.Dom.Main                        as Main
 import           Reflex.Host.Class
 import           System.Random
+import           Type.Reflection
 import           UnliftIO.Concurrent
 import           Web.PathPieces
 
@@ -144,6 +149,21 @@ instance (Monoid a, Eq a) => Q.Query (MyQuery a) where
   type QueryResult (MyQuery a) = MonoidalMap Int a
   crop (MyQuery (m :: _)) (res :: _) = res -- MMap.filter (\(k :: _) -> MMap.member k m) res
 
+instance Num a => Group (Sum a) where
+  negateG (Sum i) = Sum $ negate i
+
+data IsGraphQLQuery = forall query. (Fetch query, Eq (Args query)) => IsGraphQLQuery { unGraphQLQuery :: (TypeRep query, Args query) }
+
+instance Eq IsGraphQLQuery where
+  (==) (IsGraphQLQuery (t1, a1)) (IsGraphQLQuery (t2, a2)) =
+    case eqTypeRep t1 t2 of
+      Nothing                    -> False
+      Just (HRefl :: q1 :~~: q2) -> (a1 :: Args q1) == (a2 :: Args q2)
+
+
+-- MonoidalMap (IsGraphQLQuery) (Sum Int)
+-- MonoidalMap (IsGraphQLResponse) (Sum Int)
+
 -- instance (Group a) => Group (MyQuery a) where
 --   negateG = fmap negateG
 
@@ -155,9 +175,6 @@ instance (Monoid a, Eq a) => Q.Query (MyQuery a) where
 --   mappend = (<>)
 
 -- instance (Semigroup a) => Additive (MyQuery a)
-
-instance Num a => Group (Sum a) where
-  negateG (Sum i) = Sum $ negate i
 
 -- data QueryGQL a = QueryGQL (MonoidalMap Int a)
 --   deriving (Eq, Functor)
