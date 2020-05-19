@@ -39,6 +39,7 @@ import           GHCJS.DOM.Types                (MonadJSM)
 import           Network.HTTP.Req
 import           Reflex.Dom.Core
 import           Reflex.Host.Class
+import           System.Random
 import           Type.Reflection
 import           UnliftIO.MVar
 

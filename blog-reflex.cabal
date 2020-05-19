@@ -28,6 +28,7 @@ executable blog
                , morpheus-graphql-client
                , mtl
                , path-pieces
+               , random
                , ref-tf
                , reflex
                , reflex-dom-core

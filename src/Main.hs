@@ -10,6 +10,7 @@
 {-# LANGUAGE QuasiQuotes           #-}
 {-# LANGUAGE RecursiveDo           #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
+{-# LANGUAGE TypeApplications      #-}
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeSynonymInstances  #-}
 
@@ -29,6 +30,7 @@ import           Data.Dependent.Sum                     (DSum (..))
 import           Data.Functor.Identity                  (Identity (..))
 import           Data.Map
 import qualified Data.Map                               as Map
+import           Data.Maybe                             (isJust)
 import           Data.Text                              (Text)
 import qualified Data.Text                              as T
 import qualified Data.Text.Encoding                     as T
@@ -46,6 +48,7 @@ import           Network.WebSockets                     (defaultConnectionOption
 import           Reflex.Dom.Core                        hiding (Query)
 import           Reflex.Dom.Main                        as Main
 import           Reflex.Host.Class
+import           System.Random
 import           UnliftIO.Concurrent
 import           Web.PathPieces
 
@@ -90,8 +93,15 @@ main = do
     [ ((==) (Just . T.encodeUtf8 . T.pack . (<>) "static.localhost:" $ show port) . requestHeaderHost, gzip def $ staticApp True)
     , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "jsaddle.localhost:" $ show port) . requestHeaderHost, cors (const (Just $ simpleCorsResourcePolicy { corsRequestHeaders = [ "content-type" ] } )) $ jsApp)
     , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "graphql.localhost:" $ show port) . requestHeaderHost, simpleCors graphqlApp)
+    , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "api.localhost:" $ show port) . requestHeaderHost, cors (const (Just $ simpleCorsResourcePolicy { corsRequestHeaders = [ "content-type" ] } )) $ echoApp)
     , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "localhost:" $ show port) . requestHeaderHost, app)
     ] $ const $ flip ($) (responseLBS status503 [] "Service unavailable")
+
+echoApp :: Application
+echoApp request respond = do
+  -- num :: Int <- randomRIO (1, 10)
+  lbs <- lazyRequestBody request
+  respond $ responseLBS ok200 [(hContentType, "application/json")] lbs
 
 app :: Application
 app request respond = do
@@ -108,7 +118,7 @@ app request respond = do
         clickE <- button "click"
         textD <- holdDyn "before click" $ "afterClick " <$ buildE
         dynText textD
-        queryW
+        -- queryW
         runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) appW
 
   let status = case state of
@@ -127,12 +137,20 @@ instance (Monoid a, Eq a) => Q.Query (MyQuery a) where
 instance (Group a) => Group (MyQuery a) where
   negateG = fmap negateG
 
-instance (Semigroup a) => Semigroup (MyQuery a)
-instance (Monoid a) => Monoid (MyQuery a)
+instance (Semigroup a) => Semigroup (MyQuery a) where
+  (<>) (MyQuery a) (MyQuery b) = MyQuery $ a <> b
+
+instance (Monoid a) => Monoid (MyQuery a) where
+  mempty = MyQuery MMap.empty
+  mappend = (<>)
+
 instance (Semigroup a) => Additive (MyQuery a)
 
 instance Group String where
-  negateG = id
+  negateG = const ""
+
+-- data QueryGQL a = QueryGQL (MonoidalMap Int a)
+--   deriving (Eq, Functor)
 
 -- ryantrinkle> aveltras: yes, or in your case it could be the cache
 -- <ryantrinkle> it doesn't *have* to be constantly-updating to work
@@ -145,20 +163,63 @@ instance Group String where
 
 -- data IsGraphqlQuery
 
-queryWDyn :: (Reflex t) => Dynamic t (MyQuery String) -> Dynamic t (QueryResult (MyQuery String))
-queryWDyn _qDyn = constDyn (MMap.singleton (5 :: Int) "blabla2")
 
-queryW :: (DomBuilder t m, MonadFix m, PostBuild t m, MonadHold t m) => m ()
-queryW = mdo
-  (_a, vs) <- runQueryT widgetWithQuery $ queryWDyn nubbedVs
-  nubbedVs <- holdUniqDyn $ incrementalToDynamic vs
+type XhrConstraints t m = (HasJSContext (Performable m), MonadJSM (Performable m), PerformEvent t m, TriggerEvent t m, HasJSContext m, MonadIO m, MonadJSM m)
+
+xhrQuery :: forall query m t. (XhrConstraints t m, FromJSON query, Fetch query) => Event t (Args query) -> m (Event t (Either String query))
+xhrQuery queryE = performEvent $ toPerformable <$> queryE
+
+  where
+
+    toPerformable :: Args query -> Performable m (Either String query)
+    toPerformable args = fetch xhrFetch args
+
+    xhrFetch queryBS = do
+
+      let req = xhrRequest "POST" "http://graphql.localhost:3000" $ def & xhrRequestConfig_sendData .~ BL.toStrict queryBS
+
+      resultVar <- newEmptyMVar
+      void $ newXMLHttpRequest req $ liftIO . putMVar resultVar
+      resp <- takeMVar resultVar
+
+      let body = case resp ^. xhrResponse_responseText of
+            Nothing  -> error "boom"
+            Just txt -> BL.fromStrict . T.encodeUtf8 $ txt
+
+      pure body
+
+
+queryHandlerXhr :: (XhrConstraints t m, PostBuild t m, Monad m, Reflex t, MonadHold t m) => Dynamic t (MyQuery String) -> m (Dynamic t (QueryResult (MyQuery String)))
+queryHandlerXhr queryD = do
+  let queryE = updated queryD
+  respE :: Event t (MonoidalMap Int XhrResponse) <- performRequestsAsync ((\(MyQuery m) -> postJson "http://api.localhost:3000" <$> m) <$> queryE)
+  holdDyn MMap.empty $ (filterMaybes <$> ((fmap . fmap) decodeXhrResponse respE))
+
+  where
+    filterMaybes :: (Semigroup a, Ord k) => MonoidalMap k (Maybe a) -> MonoidalMap k a
+    filterMaybes = MMap.foldMapWithKey f
+
+    f :: (Semigroup a, Ord k) => k -> Maybe a -> MonoidalMap k a
+    f k (Just a) = MMap.singleton k a
+    f k Nothing  = mempty
+
+
+queryW :: (XhrConstraints t m, Reflex t, MonadHold t m, DomBuilder t m, MonadFix m, PostBuild t m, MonadHold t m) => m ()
+queryW = do
+  rec
+    v <- queryHandlerXhr nubbedVs
+    (_a, vs) <- runQueryT widgetWithQuery v
+    nubbedVs <- holdUniqDyn $ incrementalToDynamic vs
   blank
 
-widgetWithQuery :: (MonadQuery t (MyQuery String) m, PostBuild t m, DomBuilder t m) => m ()
+widgetWithQuery :: (XhrConstraints t m, MonadFix m, MonadHold t m, MonadQuery t (MyQuery String) m, PostBuild t m, DomBuilder t m) => m ()
 widgetWithQuery = do
-  resultD :: Dynamic t (QueryResult (MyQuery String)) <- queryDyn $ constDyn $ MyQuery $ MMap.singleton (5 :: Int) "test"
-  let textD = ffor (MMap.lookup (5 :: Int) <$> resultD) $ maybe "nothing" (T.pack)
+  clickE <- button "click"
+  countD <- count clickE
+  resultD <- queryDyn $ ffor countD $ \str -> MyQuery $ MMap.singleton str (show str)
+  let textD = ffor2 countD resultD (\int m -> maybe "nothing" (T.pack) $ MMap.lookup int m)
   dynText textD
+  blank
 
 mainJS :: JSM ()
 mainJS = Main.mainWidget $ do
@@ -255,27 +316,3 @@ graphqlApp request respond = do
   bs <- strictRequestBody request
   resp <- api bs
   respond $ responseLBS ok200 [(hContentType, "application/json")] resp
-
-type XhrConstraints t m = (HasJSContext (Performable m), MonadJSM (Performable m), PerformEvent t m, HasJSContext m, MonadIO m, MonadJSM m)
-
-xhrQuery :: forall query m t. (XhrConstraints t m, FromJSON query, Fetch query) => Event t (Args query) -> m (Event t (Either String query))
-xhrQuery queryE = performEvent $ toPerformable <$> queryE
-
-  where
-
-    toPerformable :: Args query -> Performable m (Either String query)
-    toPerformable args = fetch xhrFetch args
-
-    xhrFetch queryBS = do
-
-      let req = xhrRequest "POST" "http://graphql.localhost:3000" $ def & xhrRequestConfig_sendData .~ BL.toStrict queryBS
-
-      resultVar <- newEmptyMVar
-      void $ newXMLHttpRequest req $ liftIO . putMVar resultVar
-      resp <- takeMVar resultVar
-
-      let body = case resp ^. xhrResponse_responseText of
-            Nothing  -> error "boom"
-            Just txt -> BL.fromStrict . T.encodeUtf8 $ txt
-
-      pure body
