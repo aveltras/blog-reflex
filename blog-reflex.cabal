@@ -22,6 +22,7 @@ executable blog
                , jsaddle
                , jsaddle-warp
                , lens
+               , monoidal-containers
                , morpheus-graphql
                , morpheus-graphql-core
                , morpheus-graphql-client

@@ -1,4 +1,5 @@
 {-# LANGUAGE ConstraintKinds       #-}
+{-# LANGUAGE DeriveFunctor         #-}
 {-# LANGUAGE DeriveGeneric         #-}
 {-# LANGUAGE DerivingStrategies    #-}
 {-# LANGUAGE FlexibleContexts      #-}
@@ -7,6 +8,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE NamedFieldPuns        #-}
 {-# LANGUAGE QuasiQuotes           #-}
+{-# LANGUAGE RecursiveDo           #-}
 {-# LANGUAGE ScopedTypeVariables   #-}
 {-# LANGUAGE TypeFamilies          #-}
 {-# LANGUAGE TypeSynonymInstances  #-}
@@ -55,6 +57,11 @@ import           Data.Morpheus.Types                    (GQLRootResolver (..),
                                                          ResolverQ,
                                                          Undefined (..))
 
+import           Data.Map.Monoidal                      (MonoidalMap)
+import qualified Data.Map.Monoidal                      as MMap
+import           Reflex.Patch                           (Additive,
+                                                         Group (negateG))
+import qualified Reflex.Query.Class                     as Q
 
 import           Source
 import           View
@@ -89,7 +96,8 @@ main = do
 app :: Application
 app request respond = do
 
-  (state, html) <- renderStatic' . runHydratableT . runSourceT ("http://graphql.localhost:3000", constant Map.empty) $
+  -- (state, html) <- renderStatic' . runHydratableT . runSourceT ("http://graphql.localhost:3000", constant Map.empty) $
+  (state, html) <- renderStatic' . runHydratableT $ runSourceT ("http://graphql.localhost:3000", constant Map.empty) $
     el "html" $ do
       el "head" $ do
         elAttr "script" ("src" =: "http://jsaddle.localhost:3000/jsaddle.js") blank
@@ -100,6 +108,7 @@ app request respond = do
         clickE <- button "click"
         textD <- holdDyn "before click" $ "afterClick " <$ buildE
         dynText textD
+        queryW
         runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) appW
 
   let status = case state of
@@ -108,6 +117,38 @@ app request respond = do
 
   respond $ responseLBS status [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict html
 
+data MyQuery a = MyQuery (MonoidalMap Int a)
+  deriving (Eq, Functor)
+
+instance (Monoid a, Eq a) => Q.Query (MyQuery a) where
+  type QueryResult (MyQuery a) = MonoidalMap Int a
+  crop map res = res
+
+instance (Group a) => Group (MyQuery a) where
+  negateG = fmap negateG
+
+instance (Semigroup a) => Semigroup (MyQuery a)
+instance (Monoid a) => Monoid (MyQuery a)
+instance (Semigroup a) => Additive (MyQuery a)
+
+instance Group String where
+  negateG = id
+
+queryWDyn :: (Reflex t) => Dynamic t (MyQuery String) -> Dynamic t (QueryResult (MyQuery String))
+queryWDyn qDyn = constDyn (MMap.singleton (5 :: Int) "blabla")
+
+queryW :: (DomBuilder t m, Monad m, MonadFix m, Reflex t, PostBuild t m, MonadHold t m) => m ()
+queryW = mdo
+  (a, vs) <- runQueryT widgetWithQuery $ queryWDyn nubbedVs
+  nubbedVs <- holdUniqDyn $ incrementalToDynamic vs
+  blank
+
+widgetWithQuery :: (MonadQuery t (MyQuery String) m, PostBuild t m, DomBuilder t m) => m ()
+widgetWithQuery = do
+  resultD :: Dynamic t (QueryResult (MyQuery String)) <- queryDyn $ constDyn $ MyQuery $ MMap.singleton (5 :: Int) "test"
+  let textD = ffor (MMap.lookup (5 :: Int) <$> resultD) $ maybe "nothing" (const "just")
+  dynText textD
+
 mainJS :: JSM ()
 mainJS = Main.mainWidget $ do
   text "hello"
@@ -115,6 +156,7 @@ mainJS = Main.mainWidget $ do
   clickE <- button "click"
   textD <- holdDyn "before click" $ "afterClick " <$ leftmost [buildE, clickE]
   dynText textD
+  queryW
   _ <- runSourceT ("http://graphql.localhost:3000", constant Map.empty) $ runViewT browserLocHandler appW
   blank
 

@@ -71,6 +71,7 @@ newtype SourceT t s m a
     , MonadHold t
     , MonadJSM
     , MonadSample t
+    , MonadQuery t q
     , MonadFix
     , MonadTrans
     , PostBuild t
