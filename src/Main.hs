@@ -134,24 +134,34 @@ instance (Semigroup a) => Additive (MyQuery a)
 instance Group String where
   negateG = id
 
-queryWDyn :: (Reflex t) => Dynamic t (MyQuery String) -> Dynamic t (QueryResult (MyQuery String))
-queryWDyn qDyn = constDyn (MMap.singleton (5 :: Int) "blabla")
+-- ryantrinkle> aveltras: yes, or in your case it could be the cache
+-- <ryantrinkle> it doesn't *have* to be constantly-updating to work
+-- <ryantrinkle> (but you might need to put in something to ensure values aren't "too stale")
+-- <aveltras> Map GraphqlQuery Int would be the "a" of Query a ?
+-- <ryantrinkle> yeah
+-- <ryantrinkle> er
+-- <ryantrinkle> yes
+-- <ryantrinkle> and QueryResult (Map GraphqlQuery Int) would be Map GraphqlQuery GraphqlResponse
 
-queryW :: (DomBuilder t m, Monad m, MonadFix m, Reflex t, PostBuild t m, MonadHold t m) => m ()
+-- data IsGraphqlQuery
+
+queryWDyn :: (Reflex t) => Dynamic t (MyQuery String) -> Dynamic t (QueryResult (MyQuery String))
+queryWDyn _qDyn = constDyn (MMap.singleton (5 :: Int) "blabla2")
+
+queryW :: (DomBuilder t m, MonadFix m, PostBuild t m, MonadHold t m) => m ()
 queryW = mdo
-  (a, vs) <- runQueryT widgetWithQuery $ queryWDyn nubbedVs
+  (_a, vs) <- runQueryT widgetWithQuery $ queryWDyn nubbedVs
   nubbedVs <- holdUniqDyn $ incrementalToDynamic vs
   blank
 
 widgetWithQuery :: (MonadQuery t (MyQuery String) m, PostBuild t m, DomBuilder t m) => m ()
 widgetWithQuery = do
   resultD :: Dynamic t (QueryResult (MyQuery String)) <- queryDyn $ constDyn $ MyQuery $ MMap.singleton (5 :: Int) "test"
-  let textD = ffor (MMap.lookup (5 :: Int) <$> resultD) $ maybe "nothing" (const "just")
+  let textD = ffor (MMap.lookup (5 :: Int) <$> resultD) $ maybe "nothing" (T.pack)
   dynText textD
 
 mainJS :: JSM ()
 mainJS = Main.mainWidget $ do
-  text "hello"
   buildE <- getPostBuild
   clickE <- button "click"
   textD <- holdDyn "before click" $ "afterClick " <$ leftmost [buildE, clickE]
