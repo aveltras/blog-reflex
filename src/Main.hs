@@ -122,8 +122,8 @@ app :: Application
 app request respond = do
 
   -- (state, html) <- renderStatic' . runHydratableT . runSourceT ("http://graphql.localhost:3000", constant Map.empty) $
-  -- (state, html) <- renderStatic' . runHydratableT $ runSourceT ("http://graphql.localhost:3000", constant Map.empty) $
-  (state, html) <- renderStatic' . runHydratableT $
+  (state, html) <- renderStatic' . runHydratableT . runSourceT reqXhrHandler graphqlCodec $
+  -- (state, html) <- renderStatic' . runHydratableT $
     el "html" $ do
       el "head" $ do
         elAttr "script" ("src" =: "http://jsaddle.localhost:3000/jsaddle.js") blank
@@ -305,8 +305,8 @@ mainJS = Main.mainWidget $ do
   textD <- holdDyn "before click" $ "afterClick " <$ leftmost [buildE, clickE]
   dynText textD
   -- queryW
-  _ <- runViewT browserLocHandler appW
-  -- _ <- runSourceT ("http://graphql.localhost:3000", constant Map.empty) $ runViewT browserLocHandler appW
+  -- _ <- runViewT browserLocHandler appW
+  _ <- runSourceT (reflexXhrHandler def) graphqlCodec $ runViewT browserLocHandler appW
   blank
 
 
@@ -325,7 +325,7 @@ instance PathPiece View where
     ContactV -> "contact"
 
 -- appW :: (DomBuilder t m, MonadHold t m, HasSource t js m, HasView t View ViewError m, PerformEvent t m, Prerender js t m, PostBuild t m) => m ()
-appW :: (DomBuilder t m, MonadHold t m, HasView t View ViewError m, PerformEvent t m, Prerender js t m, PostBuild t m) => m ()
+appW :: (DomBuilder t m, HasSource t IsGraphQLQuery m, MonadHold t m, HasView t View ViewError m, PerformEvent t m, Prerender js t m, PostBuild t m) => m ()
 appW = do
   viewD <- askView
   void $ dyn $ (\case
@@ -333,7 +333,7 @@ appW = do
                      HomeV    -> do
                        text "home"
                        linkTo ContactV $ text "go contact"
-                       -- graphQLwidget
+                       graphQLwidget
                      ContactV -> do
                        text "contact"
                        linkTo HomeV $ text "go home"
@@ -344,17 +344,18 @@ appW = do
                        linkTo ContactV $ text "go contact"
                ) <$> viewD
 
--- graphQLwidget :: (HasSource t js m, PostBuild t m, MonadHold t m, DomBuilder t m) => m ()
--- graphQLwidget = do
---   buildE <- getPostBuild
---   clickE <- button "click"
---   responseE :: Event t (Either String GetDeity) <- fetchData (GetDeityArgs "tac" <$ leftmost [buildE, clickE])
---   -- responseE :: Event t (Either String GetDeity) <- xhrQuery
---   responseD <- holdDyn "" $ ffor responseE $ \r -> case r of
---     Left s  -> T.pack $ "Error ---->" <> s
---     Right g -> T.pack $ "Success ---> " <> show g
---   display responseD
---   blank
+graphQLwidget :: (HasSource t IsGraphQLQuery m, PostBuild t m, MonadHold t m, DomBuilder t m) => m ()
+graphQLwidget = do
+  buildE <- getPostBuild
+  clickE <- button "click"
+  responseE :: Event t (Either String GetDeity) <- requesting $ (IsGraphQLQuery (GetDeityArgs "tac")) <$ buildE
+  -- responseE :: Event t (Either String GetDeity) <- fetchData (GetDeityArgs "tac" <$ leftmost [buildE, clickE])
+  -- responseE :: Event t (Either String GetDeity) <- xhrQuery
+  responseD <- holdDyn "" $ ffor responseE $ \r -> case r of
+    Left s  -> T.pack $ "Error ---->" <> s
+    Right g -> T.pack $ "Success ---> " <> show g
+  display responseD
+  blank
 
 
 {-# INLINE renderStatic' #-}

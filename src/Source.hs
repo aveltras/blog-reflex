@@ -27,7 +27,7 @@
 module Source where
 
 import           Control.Lens
-import           Control.Monad                  (void, (>=>))
+import           Control.Monad                  (forM, forM_, void, (>=>))
 import           Control.Monad.Fix              (MonadFix)
 import           Control.Monad.IO.Class         (MonadIO, liftIO)
 import           Control.Monad.Reader.Class     (MonadReader, ask)
@@ -61,17 +61,16 @@ import           System.Random
 import           Type.Reflection
 import           UnliftIO.MVar
 
-importGQLDocumentWithNamespace "schema.graphql"
 
-defineByDocumentFile
-  "schema.graphql"
-  [gql|
-    query GetDeity ($goName: String!)
-    {
-      deity (name: $goName)
-      { power }
-    }
-  |]
+-- class (Monad m) => HasSource t m | m -> t where
+--   query :: Event t (Request m a) -> m (Event t (Response m a))
+
+-- class (Monad m, Reflex t) => HasSource t js m | m -> t js where
+--   fetchData :: forall query. (Typeable query, Fetch query, Hashable (Args query), FromJSON query) => Event t (Args query) -> m (Event t (Either String query))
+--   default fetchData :: forall query m' tx. (Typeable query, Fetch query, Hashable (Args query), HasSource t js m', m ~ tx m', MonadTrans tx, FromJSON query) => Event t (Args query) -> m (Event t (Either String query))
+--   fetchData = lift . fetchData
+
+type HasSource t request m = (Requester t m, Request m ~ request, Response m ~ Either String)
 
 newtype SourceT t request response m a
   = SourceT { unSourceT :: RequesterT t request response m a }
@@ -82,10 +81,15 @@ newtype SourceT t request response m a
     , DomBuilder t
     , NotReady t
     , MonadFix
+    , MonadIO
+    , MonadJSM
     , MonadHold t
     , Requester t
     , MonadSample t
+    , Prerender js t
     , PostBuild t
+    , PerformEvent t
+    , TriggerEvent t
     )
 
 instance (Adjustable t m, MonadFix m, MonadHold t m) => Adjustable t (SourceT t request response m) where
@@ -93,16 +97,6 @@ instance (Adjustable t m, MonadFix m, MonadHold t m) => Adjustable t (SourceT t 
   traverseDMapWithKeyWithAdjust f m e = SourceT $ traverseDMapWithKeyWithAdjust (\k v -> coerce $ f k v) m e
   traverseIntMapWithKeyWithAdjust f m e = SourceT $ traverseIntMapWithKeyWithAdjust (\k v -> coerce $ f k v) m e
   traverseDMapWithKeyWithAdjustWithMove f m e = SourceT $ traverseDMapWithKeyWithAdjustWithMove (\k v -> coerce $ f k v) m e
-
-
-
-test :: (XhrConstraints t m, PerformEvent t m, DomBuilder t m, Monad m, MonadHold t m, MonadFix m, PostBuild t m, Reflex t) => m ()
-test = do
-  res <- runSourceT (xhrHandler def) graphqlCodec $ do
-    buildE <- getPostBuild
-    responseE :: Event t (Either String GetDeity) <- requesting $ (IsGraphQLQuery (GetDeityArgs "tac")) <$ buildE
-    undefined
-  blank
 
 runSourceT :: forall t request response wireFormat m a.
   ( Reflex t
@@ -130,20 +124,20 @@ graphqlCodec (IsGraphQLQuery args) = (toWire, fromWire)
       JSONResponse { responseData = Just x } -> Right x
       invalidResponse -> Left $ show invalidResponse
 
-xhrHandler :: (XhrConstraints t m) => XhrRequestConfig () -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
-xhrHandler xhrConfig requestsE = do
+reflexXhrHandler :: (XhrConstraints t m) => XhrRequestConfig () -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
+reflexXhrHandler xhrConfig requestsE = do
   xhrResponsesE <- performRequestsAsync $ (fmap . fmap) toXhrRequest requestsE
   pure $ (fmap . fmap) extractBody xhrResponsesE
 
-  where
+    where
 
-    toXhrRequest :: BS.ByteString -> XhrRequest WireFormat
-    toXhrRequest wire = xhrRequest "POST" "tacotac" $ xhrConfig & xhrRequestConfig_sendData .~ wire
+      toXhrRequest :: BS.ByteString -> XhrRequest WireFormat
+      toXhrRequest wire = xhrRequest "POST" "tacotac" $ xhrConfig & xhrRequestConfig_sendData .~ wire
 
-    extractBody :: XhrResponse -> WireFormat
-    extractBody xhrResponse = case xhrResponse ^. xhrResponse_responseText of
-      Nothing  -> error "boom"
-      Just txt -> T.encodeUtf8 $ txt
+      extractBody :: XhrResponse -> WireFormat
+      extractBody xhrResponse = case xhrResponse ^. xhrResponse_responseText of
+        Nothing  -> error "boom"
+        Just txt -> T.encodeUtf8 $ txt
 
 
 type XhrConstraints t m =
@@ -155,6 +149,63 @@ type XhrConstraints t m =
   , MonadIO m
   , MonadJSM m
   )
+
+-- instance (MonadIO m, MonadIO (HostFrame t), ReflexHost t, Reflex t, Ref m ~ IORef) => HasSource t js (
+
+reqXhrHandler :: (PerformEvent t m, MonadIO (Performable m)) => Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
+reqXhrHandler = performEvent . fmap toXhrRequest
+  where
+    toXhrRequest = traverse $ \wire -> runReq defaultHttpConfig $ do
+      responseBody <$> req POST -- method
+                           (http "graphql.localhost") -- safe by construction URL
+                           (ReqBodyBs wire) -- use built-in options or add your own
+                           bsResponse -- specify how to interpret response
+                           (port 3000) -- query params, headers, explicit port number, etc.
+
+
+
+
+
+
+
+
+
+
+
+
+
+importGQLDocumentWithNamespace "schema.graphql"
+
+defineByDocumentFile
+  "schema.graphql"
+  [gql|
+    query GetDeity ($goName: String!)
+    {
+      deity (name: $goName)
+      { power }
+    }
+  |]
+
+
+test :: (XhrConstraints t m, PerformEvent t m, DomBuilder t m, Monad m, MonadHold t m, MonadFix m, PostBuild t m, Reflex t) => m ()
+test = do
+  res <- runSourceT (reflexXhrHandler def) graphqlCodec $ do
+    buildE <- getPostBuild
+    responseE :: Event t (Either String GetDeity) <- requesting $ (IsGraphQLQuery (GetDeityArgs "tac")) <$ buildE
+    undefined
+  blank
+
+
+
+-- instance HasSource t js m => HasSource t js (ReaderT r m)
+-- instance HasSource t js m => HasSource t js (EventWriterT t w m)
+-- instance HasSource t js m => HasSource t js (StaticDomBuilderT t m)
+-- instance HasSource t js m => HasSource t js (HydrationDomBuilderT t js m)
+-- instance HasSource t js m => HasSource t js (PostBuildT t m)
+-- instance HasSource t js m => HasSource t js (HydratableT m)
+-- instance (HasSource t js m, ReflexHost t, MonadTrans (PerformEventT t)) => HasSource t js (PerformEventT t m)
+
+
 
 
   -- let xhrRequests = (fmap . fmap) (\req -> XhrRequest @ByteString "POST" endpoint (xhrConfig & xhrRequestConfig_sendData .~ req)) rawRequestMap

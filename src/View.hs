@@ -85,6 +85,7 @@ newtype ViewT t view err m a
     , PostBuild t
     , PerformEvent t
     , HasJSContext
+    , Requester t
     , Prerender js t
     )
 
