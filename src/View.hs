@@ -80,6 +80,7 @@ newtype ViewT t view err m a
     , MonadHold t
     , MonadSample t
     -- , HasSource t js
+    , TriggerEvent t
     , DomBuilder t
     , NotReady t
     , PostBuild t
