@@ -348,7 +348,7 @@ graphQLwidget :: (HasSource t IsGraphQLQuery m, PostBuild t m, MonadHold t m, Do
 graphQLwidget = do
   buildE <- getPostBuild
   clickE <- button "click"
-  responseE :: Event t (Either String GetDeity) <- requesting $ (IsGraphQLQuery (GetDeityArgs "tac")) <$ buildE
+  responseE :: Event t (Either String GetDeity) <- requesting $ (IsGraphQLQuery (GetDeityArgs "tac")) <$ leftmost [buildE, clickE]
   -- responseE :: Event t (Either String GetDeity) <- fetchData (GetDeityArgs "tac" <$ leftmost [buildE, clickE])
   -- responseE :: Event t (Either String GetDeity) <- xhrQuery
   responseD <- holdDyn "" $ ffor responseE $ \r -> case r of

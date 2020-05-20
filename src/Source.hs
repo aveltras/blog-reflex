@@ -132,7 +132,7 @@ reflexXhrHandler xhrConfig requestsE = do
     where
 
       toXhrRequest :: BS.ByteString -> XhrRequest WireFormat
-      toXhrRequest wire = xhrRequest "POST" "tacotac" $ xhrConfig & xhrRequestConfig_sendData .~ wire
+      toXhrRequest wire = xhrRequest "POST" "http://graphql.localhost:3000" $ xhrConfig & xhrRequestConfig_sendData .~ wire
 
       extractBody :: XhrResponse -> WireFormat
       extractBody xhrResponse = case xhrResponse ^. xhrResponse_responseText of
@@ -149,8 +149,6 @@ type XhrConstraints t m =
   , MonadIO m
   , MonadJSM m
   )
-
--- instance (MonadIO m, MonadIO (HostFrame t), ReflexHost t, Reflex t, Ref m ~ IORef) => HasSource t js (
 
 reqXhrHandler :: (PerformEvent t m, MonadIO (Performable m)) => Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
 reqXhrHandler = performEvent . fmap toXhrRequest
