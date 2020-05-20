@@ -44,6 +44,7 @@ import           Data.Text                              (Text)
 import qualified Data.Text                              as T
 import qualified Data.Text.Encoding                     as T
 import           GHC.Generics
+import           GHC.IORef
 import           Language.Javascript.JSaddle            (JSM, MonadJSM,
                                                          syncPoint)
 import qualified Language.Javascript.JSaddle.WebSockets as JW
@@ -121,13 +122,16 @@ instance Hashable GQLRequest
 app :: Application
 app request respond = do
 
+  cacheRef <- newIORef Map.empty
+
   -- (state, html) <- renderStatic' . runHydratableT . runSourceT ("http://graphql.localhost:3000", constant Map.empty) $
-  (state, html) <- renderStatic' . runHydratableT . runSourceT reqXhrHandler graphqlCodec $
+  (state, html) <- renderStatic' . runHydratableT . runSourceT (reqXhrHandler cacheRef) graphqlCodec $
   -- (state, html) <- renderStatic' . runHydratableT $
     el "html" $ do
       el "head" $ do
         elAttr "script" ("src" =: "http://jsaddle.localhost:3000/jsaddle.js") blank
         elAttr "link" ("rel" =: "stylesheet" <> "href" =: ("http://static.localhost:3000/" <> test_css)) blank
+        el "tacotac" blank
       el "body" $ do
         text "hello"
         buildE <- getPostBuild
@@ -140,6 +144,11 @@ app request respond = do
   let status = case state of
         Right _ -> ok200
         Left _  -> status404
+
+  cache <- readIORef cacheRef
+
+  print html
+  print $ T.decodeUtf8 <$> cache
 
   respond $ responseLBS status [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict html
 

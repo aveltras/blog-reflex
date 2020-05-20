@@ -40,6 +40,7 @@ import qualified Data.ByteString.Lazy           as BL
 import           Data.Coerce                    (coerce)
 import           Data.Constraint.Forall
 import           Data.Hashable
+import           Data.IORef
 import           Data.Map                       (Map)
 import qualified Data.Map                       as Map
 import           Data.Morpheus.Client
@@ -51,24 +52,15 @@ import           Data.Text                      (Text)
 import qualified Data.Text                      as T
 import qualified Data.Text.Encoding             as T
 import           GHC.Generics
-import           GHC.IORef
 import           "ghcjs-dom" GHCJS.DOM.Document (Document)
 import           GHCJS.DOM.Types                (MonadJSM)
 import           Network.HTTP.Req
-import           Reflex.Dom.Core                hiding (Query)
+import           Reflex.Dom.Core                hiding (Query, Value)
 import           Reflex.Host.Class
 import           System.Random
 import           Type.Reflection
 import           UnliftIO.MVar
 
-
--- class (Monad m) => HasSource t m | m -> t where
---   query :: Event t (Request m a) -> m (Event t (Response m a))
-
--- class (Monad m, Reflex t) => HasSource t js m | m -> t js where
---   fetchData :: forall query. (Typeable query, Fetch query, Hashable (Args query), FromJSON query) => Event t (Args query) -> m (Event t (Either String query))
---   default fetchData :: forall query m' tx. (Typeable query, Fetch query, Hashable (Args query), HasSource t js m', m ~ tx m', MonadTrans tx, FromJSON query) => Event t (Args query) -> m (Event t (Either String query))
---   fetchData = lift . fetchData
 
 type HasSource t request m = (Requester t m, Request m ~ request, Response m ~ Either String)
 
@@ -139,7 +131,6 @@ reflexXhrHandler xhrConfig requestsE = do
         Nothing  -> error "boom"
         Just txt -> T.encodeUtf8 $ txt
 
-
 type XhrConstraints t m =
   ( HasJSContext (Performable m)
   , MonadJSM (Performable m)
@@ -150,15 +141,39 @@ type XhrConstraints t m =
   , MonadJSM m
   )
 
-reqXhrHandler :: (PerformEvent t m, MonadIO (Performable m)) => Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
-reqXhrHandler = performEvent . fmap toXhrRequest
+reqXhrHandler :: (PerformEvent t m, MonadIO (Performable m)) => IORef (Map Int WireFormat) -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
+reqXhrHandler cache = performEvent . fmap toXhrRequest
   where
     toXhrRequest = traverse $ \wire -> runReq defaultHttpConfig $ do
-      responseBody <$> req POST -- method
-                           (http "graphql.localhost") -- safe by construction URL
-                           (ReqBodyBs wire) -- use built-in options or add your own
-                           bsResponse -- specify how to interpret response
-                           (port 3000) -- query params, headers, explicit port number, etc.
+      response <- responseBody <$> req POST -- method
+                                   (http "graphql.localhost") -- safe by construction URL
+                                   (ReqBodyBs wire) -- use built-in options or add your own
+                                   bsResponse -- specify how to interpret response
+                                   (port 3000) -- query params, headers, explicit port number, etc.
+      liftIO $ modifyIORef' cache $ Map.insert (hash wire) response
+      pure response
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
