@@ -39,7 +39,7 @@ import           Data.Text                              (Text)
 import qualified Data.Text                              as T
 import qualified Data.Text.Encoding                     as T
 import           GHC.IORef
-import           Language.Javascript.JSaddle            (JSM, syncPoint)
+import           Language.Javascript.JSaddle            (JSM, eval, syncPoint)
 import qualified Language.Javascript.JSaddle.WebSockets as JW
 import           Network.HTTP.Types                     hiding (Query)
 import           Network.Wai
@@ -102,29 +102,20 @@ echoApp request respond = do
   lbs <- lazyRequestBody request
   respond $ responseLBS ok200 [(hContentType, "application/json")] lbs
 
+placeholder = "%%%"
+
 app :: Application
 app request respond = do
 
   cacheRef <- newIORef Map.empty
 
-  let placeholder = "%%%"
-      commentedPlaceholder = "<!--" <> placeholder <> "-->"
+  let commentedPlaceholder = "<!--" <> placeholder <> "-->"
 
   -- (state, html) <- renderStatic' . runHydratableT . runSourceT ("http://graphql.localhost:3000", constant Map.empty) $
-  (state, html) <- renderStatic' . runHydratableT . runSourceT (reqXhrHandler cacheRef) graphqlCodec $
+  (state, html) <- renderStatic' . runHydratableT . runSourceT (reqXhrHandler cacheRef) graphqlCodec . runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) $
     el "html" $ do
-      el "head" $ do
-        elAttr "script" ("src" =: "http://jsaddle.localhost:3000/jsaddle.js") blank
-        elAttr "link" ("rel" =: "stylesheet" <> "href" =: ("http://static.localhost:3000/" <> test_css)) blank
-        comment $ T.decodeUtf8 placeholder
-      el "body" $ do
-        text "hello"
-        buildE <- getPostBuild
-        -- clickE <- button "click"
-        textD <- holdDyn "before click" $ "afterClick " <$ buildE
-        dynText textD
-        -- queryW
-        runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) appW
+      el "head" $ void headWidget
+      el "body" bodyWidget
 
   let status = case state of
         Right _ -> ok200
@@ -136,8 +127,23 @@ app request respond = do
       prerenderedHtml = a <> "<script data-prerenderblob>//" <> (BL.toStrict . encode $ T.decodeUtf8 <$> cache) <> "</script>" <> BS.drop (BS.length commentedPlaceholder) b
 
   respond $ responseLBS status [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict prerenderedHtml
+  -- respond $ responseLBS status [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict html
 
 
+headWidget :: (DomBuilder t m) => m ()
+headWidget = do
+  elAttr "script" ("src" =: "http://jsaddle.localhost:3000/jsaddle.js") blank
+  elAttr "link" ("rel" =: "stylesheet" <> "href" =: ("http://static.localhost:3000/" <> test_css)) blank
+  comment $ T.decodeUtf8 placeholder
+
+bodyWidget :: (MonadIO (Performable m), Prerender js t m, PostBuild t m, HasSource t IsGraphQLQuery m, TriggerEvent t m, PerformEvent t m, MonadHold t m, DomBuilder t m, HasView t View ViewError m) => m ()
+bodyWidget = appW
+--do
+  -- text "hello"
+  -- buildE <- getPostBuild
+  -- textD <- holdDyn "before click" $ "afterClick " <$ buildE
+  -- dynText textD
+  --appW
 
 data View = HomeV
           | ContactV
@@ -163,11 +169,11 @@ appW = do
                        linkTo ContactV $ text "go contact"
                        graphQLwidget
                      ContactV -> do
-                       text "contact"
+                       -- text "contact"
                        linkTo HomeV $ text "go home"
                    Left e -> case e of
                      ViewError -> do
-                       text "not found"
+                       -- text "not found"
                        linkTo HomeV $ text "go home"
                        linkTo ContactV $ text "go contact"
                ) <$> viewD
@@ -192,40 +198,66 @@ mainJS = do
       -- cacheMap' = Map.empty -- works
 
   -- eval ("console.log('"<> show t <>"')" :: String)
-  -- eval ("console.log('"<> show blabla' <>"')" :: String)
+  eval ("console.log('"<> show cacheMap' <>"')" :: String)
 
-  Main.mainWidget $ do
-    buildE <- getPostBuild
-    clickE <- button "click"
-    textD <- holdDyn "before click" $ "afterClick " <$ leftmost [buildE, clickE]
-    dynText textD
-    _ <- runSourceT (reflexXhrHandler def (constant cacheMap')) graphqlCodec $ runViewT browserLocHandler appW
-    blank
+
+
+  let
+    bodyWidget' = do
+      _ <- runSourceT (reflexXhrHandler def (constant cacheMap')) graphqlCodec $ runViewT browserLocHandler appW
+      blank
+
+    w :: (FrontendWidget () -> TriggerEventT DomTimeline (DomCoreWidget ()) x)
+      -> (FrontendWidget () -> TriggerEventT DomTimeline (DomCoreWidget ()) x)
+      -> TriggerEventT DomTimeline (DomCoreWidget ()) x
+    w appendHead appendBody = appendHead headWidget >> appendBody bodyWidget'
+
+
+  runHydrationWidgetWithHeadAndBody (pure ()) w
+    -- $ do
+  -- Main.mainWidget $ do
+    -- buildE <- getPostBuild
+    -- clickE <- button "click"
+    -- textD <- holdDyn "before click" $ "afterClick " <$ leftmost [buildE, clickE]
+    -- dynText textD
+    -- _ <- runSourceT (reflexXhrHandler def (constant cacheMap')) graphqlCodec $ runViewT browserLocHandler appW
+    -- blank
+
+type FrontendWidget = HydrationDomBuilderT HydrationDomSpace DomTimeline (DomCoreWidget ())
+-- runFrontend :: forall a. FromJSON a => FrontendRunner () a -> JSM ()
+-- runFrontend frontendRunner = do
+
+--   Just doc <- currentDocument
+--   Just body <- getBody doc
+--   dataset <- getDataset body
+--   encodedCfg <- get dataset ("ealeCfg" :: Text)
+
+--   let Right b64 = (Base64.decode . LBS.fromStrict . encodeUtf8) encodedCfg
+--       config = fromMaybe (error "could not retrieve configuration from DOM") (decode @a b64)
+-- -- decodeUtf8 . toStrict . Base64.encode . encode $ config
+--   let (headWidget, bodyWidget) = frontendRunner config
+
+--       w :: (FrontendWidget () -> TriggerEventT DomTimeline (DomCoreWidget ()) x)
+--         -> (FrontendWidget () -> TriggerEventT DomTimeline (DomCoreWidget ()) x)
+--         -> TriggerEventT DomTimeline (DomCoreWidget ()) x
+--       w appendHead appendBody = appendHead headWidget >> appendBody bodyWidget
+
+--   runHydrationWidgetWithHeadAndBody (pure ()) w
+
+
 
 graphQLwidget :: (MonadIO (Performable m), Prerender js t m, HasSource t IsGraphQLQuery m, TriggerEvent t m, PostBuild t m, MonadHold t m, PerformEvent t m, DomBuilder t m) => m ()
 graphQLwidget = do
 
-  finalD <- prerender serverW frontendW
-  display $ traceDyn "widget dyn" $ join finalD
+  buildE <- getPostBuild
+  responseE :: Event t (Either String GetDeity) <- requesting $ (IsGraphQLQuery (GetDeityArgs "tac")) <$ (leftmost [traceEvent "server - build event" buildE])
+  widgetD <- holdDyn "initial" $ ffor (traceEvent "server widget" responseE) $ \r -> case r of
+    Left s  -> T.pack $ "Error ---->" <> s
+    Right g -> T.pack $ "Success ---> " <> show g
+
+  prerender_ (el "div" $ dynText widgetD) (el "div" $ dynText widgetD)
+
   blank
-
-  where
-
-    serverW = do
-      buildE <- getPostBuild
-      responseE :: Event t (Either String GetDeity) <- requesting $ (IsGraphQLQuery (GetDeityArgs "tac")) <$ (leftmost [traceEvent "server - build event" buildE])
-      widgetD <- holdDyn "initial" $ ffor (traceEvent "server widget" responseE) $ \r -> case r of
-        Left s  -> T.pack $ "Error ---->" <> s
-        Right g -> T.pack $ "Success ---> " <> show g
-      pure widgetD
-
-    frontendW = do
-      buildE <- getPostBuild
-      responseE :: Event t (Either String GetDeity) <- requesting $ (IsGraphQLQuery (GetDeityArgs "tac")) <$ (leftmost [traceEvent "frontend - build event" buildE])
-      widgetD <- holdDyn "initial" $ ffor (traceEvent "frontend widget" responseE) $ \r -> case r of
-        Left s  -> T.pack $ "Error ---->" <> s
-        Right g -> T.pack $ "Success ---> " <> show g
-      pure widgetD
 
 
 

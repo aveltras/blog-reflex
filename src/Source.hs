@@ -113,7 +113,7 @@ reflexXhrHandler xhrConfig cacheB requestsE = do
       cachedResponsesE = ffor partitionedRequestsE fst
       xhrRequestsE = ffor partitionedRequestsE snd
   xhrResponsesE <- performRequestsAsync xhrRequestsE
-  pure $ traceEvent "frontend - xhr result" $ ffilter ((/=) Map.empty) $ cachedResponsesE <> (fmap . fmap) extractBody xhrResponsesE
+  delay 0.000001 $ traceEvent "frontend - xhr result" $ ffilter ((/=) Map.empty) $ cachedResponsesE <> (fmap . fmap) extractBody xhrResponsesE
 
     where
 
