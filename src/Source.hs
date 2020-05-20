@@ -35,6 +35,7 @@ import           Control.Monad.Ref
 import           Control.Monad.Trans.Class      (MonadTrans, lift)
 import           Control.Monad.Trans.Reader     (Reader, ReaderT, runReaderT)
 import           Data.Aeson
+import           Data.Align
 import qualified Data.ByteString                as BS
 import qualified Data.ByteString.Lazy           as BL
 import           Data.Coerce                    (coerce)
@@ -51,6 +52,7 @@ import           Data.Proxy                     (Proxy (..))
 import           Data.Text                      (Text)
 import qualified Data.Text                      as T
 import qualified Data.Text.Encoding             as T
+import           Data.These
 import           GHC.Generics
 import           "ghcjs-dom" GHCJS.DOM.Document (Document)
 import           GHCJS.DOM.Types                (MonadJSM)
@@ -101,8 +103,13 @@ runSourceT :: forall t request response wireFormat m a.
 runSourceT requestHandler codec (SourceT widget) = mdo
   wireResponsesE <- requestHandler wireRequestsE
   (result, requestE) <- runRequesterT widget responseE
-  (wireRequestsE, responseE) <- matchResponsesWithRequests codec requestE $ head . Map.toList <$> wireResponsesE
+  (wireRequestsE, responseE) <- matchResponsesWithRequests codec requestE $ fmapMaybe id (safeHead . Map.toList <$> wireResponsesE)
   pure result
+
+safeHead :: [a] -> Maybe a
+safeHead = \case
+  [] -> Nothing
+  x:_ -> Just x
 
 data IsGraphQLQuery query = (FromJSON query, Fetch query, Show query) => IsGraphQLQuery { unGraphQLQuery :: Args query }
 
@@ -119,12 +126,18 @@ graphqlCodec (IsGraphQLQuery args) = (toWire, fromWire)
 reflexXhrHandler :: (XhrConstraints t m) => XhrRequestConfig () -> Map Int WireFormat -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
 reflexXhrHandler xhrConfig cache requestsE = do
   let partitionedRequestsE = partitionRequests <$> requestsE
-      cachedResponsesE = traceEvent "debug" $ ffor partitionedRequestsE fst
+      cachedResponsesE = ffor partitionedRequestsE fst
       xhrRequestsE = ffor partitionedRequestsE snd
   xhrResponsesE <- performRequestsAsync xhrRequestsE
-  pure $ cachedResponsesE <> (fmap . fmap) extractBody xhrResponsesE
+  pure $ alignWith align' cachedResponsesE xhrResponsesE
 
     where
+
+      align' :: These (Map Int WireFormat) (Map Int XhrResponse) -> Map Int WireFormat
+      align' = \case
+        This a -> a
+        That a -> extractBody <$> a
+        These a b -> a <> (extractBody <$> b)
 
       partitionRequests :: Map Int WireFormat -> (Map Int WireFormat, Map Int (XhrRequest WireFormat))
       partitionRequests = Map.foldrWithKey f (Map.empty, Map.empty)

@@ -34,7 +34,9 @@ executable blog
                , reflex
                , reflex-dom-core
                , req
+               , semialign
                , text
+               , these
                , transformers
                , unliftio
                , wai
