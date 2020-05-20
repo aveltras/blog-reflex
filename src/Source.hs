@@ -116,14 +116,24 @@ graphqlCodec (IsGraphQLQuery args) = (toWire, fromWire)
       JSONResponse { responseData = Just x } -> Right x
       invalidResponse -> Left $ show invalidResponse
 
-reflexXhrHandler :: (XhrConstraints t m) => XhrRequestConfig () -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
-reflexXhrHandler xhrConfig requestsE = do
-  xhrResponsesE <- performRequestsAsync $ (fmap . fmap) toXhrRequest requestsE
-  pure $ (fmap . fmap) extractBody xhrResponsesE
+reflexXhrHandler :: (XhrConstraints t m) => XhrRequestConfig () -> Map Int WireFormat -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
+reflexXhrHandler xhrConfig cache requestsE = do
+  let partitionedRequestsE = partitionRequests <$> requestsE
+      cachedResponsesE = traceEvent "debug" $ ffor partitionedRequestsE fst
+      xhrRequestsE = ffor partitionedRequestsE snd
+  xhrResponsesE <- performRequestsAsync xhrRequestsE
+  pure $ cachedResponsesE <> (fmap . fmap) extractBody xhrResponsesE
 
     where
 
-      toXhrRequest :: BS.ByteString -> XhrRequest WireFormat
+      partitionRequests :: Map Int WireFormat -> (Map Int WireFormat, Map Int (XhrRequest WireFormat))
+      partitionRequests = Map.foldrWithKey f (Map.empty, Map.empty)
+        where
+          f k a (x1, x2) = case Map.lookup (hash a) cache of
+            Nothing -> (x1, Map.insert k (toXhrRequest a) x2)
+            Just bs -> (Map.insert k bs x1, x2)
+
+      toXhrRequest :: WireFormat -> XhrRequest WireFormat
       toXhrRequest wire = xhrRequest "POST" "http://graphql.localhost:3000" $ xhrConfig & xhrRequestConfig_sendData .~ wire
 
       extractBody :: XhrResponse -> WireFormat
@@ -200,13 +210,13 @@ defineByDocumentFile
   |]
 
 
-test :: (XhrConstraints t m, PerformEvent t m, DomBuilder t m, Monad m, MonadHold t m, MonadFix m, PostBuild t m, Reflex t) => m ()
-test = do
-  res <- runSourceT (reflexXhrHandler def) graphqlCodec $ do
-    buildE <- getPostBuild
-    responseE :: Event t (Either String GetDeity) <- requesting $ (IsGraphQLQuery (GetDeityArgs "tac")) <$ buildE
-    undefined
-  blank
+-- test :: (XhrConstraints t m, PerformEvent t m, DomBuilder t m, Monad m, MonadHold t m, MonadFix m, PostBuild t m, Reflex t) => m ()
+-- test = do
+--   res <- runSourceT (reflexXhrHandler def) graphqlCodec $ do
+--     buildE <- getPostBuild
+--     responseE :: Event t (Either String GetDeity) <- requesting $ (IsGraphQLQuery (GetDeityArgs "tac")) <$ buildE
+--     undefined
+--   blank
 
 
 

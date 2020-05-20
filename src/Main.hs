@@ -43,9 +43,11 @@ import           Data.Proxy                             (Proxy (..))
 import           Data.Text                              (Text)
 import qualified Data.Text                              as T
 import qualified Data.Text.Encoding                     as T
+import qualified Data.Text.Lazy                         as TL
+import qualified Data.Text.Lazy.Encoding                as TL
 import           GHC.Generics
 import           GHC.IORef
-import           Language.Javascript.JSaddle            (JSM, MonadJSM,
+import           Language.Javascript.JSaddle            (JSM, MonadJSM, eval,
                                                          syncPoint)
 import qualified Language.Javascript.JSaddle.WebSockets as JW
 import           Network.HTTP.Types                     hiding (Query)
@@ -82,6 +84,19 @@ import qualified Reflex.Query.Class                     as Q
 
 import           Source
 import           View
+
+import qualified GHCJS.DOM                              as DOM
+import qualified GHCJS.DOM.Document                     as DOM
+import qualified GHCJS.DOM.DOMStringMap                 as DOM
+import qualified GHCJS.DOM.HTMLElement                  as DOM
+import qualified GHCJS.DOM.HTMLScriptElement            as DOM
+import qualified GHCJS.DOM.ParentNode                   as DOM
+import qualified GHCJS.DOM.Types                        as DOM
+-- import GHCJS.DOM.Document (getBody)
+-- import GHCJS.DOM.DOMStringMap (get)
+-- import GHCJS.DOM.HTMLElement (getDataset)
+-- import GHCJS.DOM.Types (JSM)
+
 
 mkStaticApp "static"
 
@@ -124,14 +139,16 @@ app request respond = do
 
   cacheRef <- newIORef Map.empty
 
+  let placeholder = "%%%"
+      commentedPlaceholder = "<!--" <> placeholder <> "-->"
+
   -- (state, html) <- renderStatic' . runHydratableT . runSourceT ("http://graphql.localhost:3000", constant Map.empty) $
   (state, html) <- renderStatic' . runHydratableT . runSourceT (reqXhrHandler cacheRef) graphqlCodec $
-  -- (state, html) <- renderStatic' . runHydratableT $
     el "html" $ do
       el "head" $ do
         elAttr "script" ("src" =: "http://jsaddle.localhost:3000/jsaddle.js") blank
         elAttr "link" ("rel" =: "stylesheet" <> "href" =: ("http://static.localhost:3000/" <> test_css)) blank
-        el "tacotac" blank
+        comment $ T.decodeUtf8 placeholder
       el "body" $ do
         text "hello"
         buildE <- getPostBuild
@@ -147,10 +164,10 @@ app request respond = do
 
   cache <- readIORef cacheRef
 
-  print html
-  print $ T.decodeUtf8 <$> cache
+  let (a, b) = BS.breakSubstring commentedPlaceholder html
+      prerenderedHtml = a <> "<script data-prerenderblob>//" <> (BL.toStrict . encode $ T.decodeUtf8 <$> cache) <> "</script>" <> BS.drop (BS.length commentedPlaceholder) b
 
-  respond $ responseLBS status [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict html
+  respond $ responseLBS status [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict prerenderedHtml
 
 -- type MyQuery a = MonoidalMap Int a
 
@@ -308,15 +325,54 @@ queryDynUniq = holdUniqDyn <=< queryDyn
 --     myQuery = IsGraphQLQuery (typeRep @GetDeity, GetDeityArgs "test")
 
 mainJS :: JSM ()
-mainJS = Main.mainWidget $ do
-  buildE <- getPostBuild
-  clickE <- button "click"
-  textD <- holdDyn "before click" $ "afterClick " <$ leftmost [buildE, clickE]
-  dynText textD
-  -- queryW
-  -- _ <- runViewT browserLocHandler appW
-  _ <- runSourceT (reflexXhrHandler def) graphqlCodec $ runViewT browserLocHandler appW
-  blank
+mainJS = do
+
+  Just doc <- DOM.currentDocument
+  Just hd <- DOM.getHead doc
+  t <- DOM.querySelector hd ("[data-prerenderblob]" :: Text) >>= \case
+    Nothing -> pure ""
+    Just node ->
+      DOM.castTo DOM.HTMLScriptElement node >>= \case
+        Nothing -> pure ""
+        Just e -> T.drop 2 <$> (DOM.getText e) :: JSM Text
+
+
+  let blabla = decode' @(Map Int Text) $ BL.fromStrict $ T.encodeUtf8 t
+      blabla' = maybe Map.empty (fmap T.encodeUtf8) blabla
+
+  -- eval ("console.log('"<> show t <>"')" :: String)
+  eval ("console.log('"<> show blabla' <>"')" :: String)
+
+  Main.mainWidget $ do
+    buildE <- getPostBuild
+    clickE <- button "click"
+    textD <- holdDyn "before click" $ "afterClick " <$ leftmost [buildE, clickE]
+    dynText textD
+    -- queryW
+    -- _ <- runViewT browserLocHandler appW
+    _ <- runSourceT (reflexXhrHandler def blabla') graphqlCodec $ runViewT browserLocHandler appW
+    blank
+
+
+-- runFrontend :: forall a. FromJSON a => FrontendRunner () a -> JSM ()
+-- runFrontend frontendRunner = do
+
+--   Just doc <- currentDocument
+--   Just body <- getBody doc
+--   dataset <- getDataset body
+--   encodedCfg <- get dataset ("ealeCfg" :: Text)
+
+--   let Right b64 = (Base64.decode . LBS.fromStrict . encodeUtf8) encodedCfg
+--       config = fromMaybe (error "could not retrieve configuration from DOM") (decode @a b64)
+-- -- decodeUtf8 . toStrict . Base64.encode . encode $ config
+--   let (headWidget, bodyWidget) = frontendRunner config
+
+--       w :: (FrontendWidget () -> TriggerEventT DomTimeline (DomCoreWidget ()) x)
+--         -> (FrontendWidget () -> TriggerEventT DomTimeline (DomCoreWidget ()) x)
+--         -> TriggerEventT DomTimeline (DomCoreWidget ()) x
+--       w appendHead appendBody = appendHead headWidget >> appendBody bodyWidget
+
+--   runHydrationWidgetWithHeadAndBody (pure ()) w
 
 
 data View = HomeV
