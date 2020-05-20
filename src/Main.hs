@@ -250,8 +250,8 @@ graphQLwidget :: (MonadIO (Performable m), Prerender js t m, HasSource t IsGraph
 graphQLwidget = do
 
   buildE <- getPostBuild
-  responseE :: Event t (Either String GetDeity) <- requesting $ (IsGraphQLQuery (GetDeityArgs "tac")) <$ (leftmost [traceEvent "server - build event" buildE])
-  widgetD <- holdDyn "initial" $ ffor (traceEvent "server widget" responseE) $ \r -> case r of
+  responseE :: Event t (Either String GetDeity) <- requesting $ (IsGraphQLQuery (GetDeityArgs "tac")) <$ buildE
+  widgetD <- holdDyn "initial" $ ffor responseE $ \r -> case r of
     Left s  -> T.pack $ "Error ---->" <> s
     Right g -> T.pack $ "Success ---> " <> show g
 

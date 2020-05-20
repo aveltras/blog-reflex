@@ -86,8 +86,7 @@ runSourceT :: forall t request response wireFormat m a.
 runSourceT requestHandler codec (SourceT widget) = mdo
   wireResponsesE <- requestHandler wireRequestsE
   (result, requestE) <- runRequesterT widget responseE
-  -- (wireRequestsE, responseE) <- matchResponsesWithRequests codec requestE $ fmapMaybe id (safeHead . Map.toList <$> traceEvent "raw response" wireResponsesE)
-  (wireRequestsE, responseE) <- matchResponsesWithRequests codec requestE $ traceEvent "runSourceT - raw response" (head . Map.toList <$> wireResponsesE)
+  (wireRequestsE, responseE) <- matchResponsesWithRequests codec requestE $ fmapMaybe id (safeHead . Map.toList <$> wireResponsesE)
   pure result
 
 safeHead :: [a] -> Maybe a
@@ -113,7 +112,7 @@ reflexXhrHandler xhrConfig cacheB requestsE = do
       cachedResponsesE = ffor partitionedRequestsE fst
       xhrRequestsE = ffor partitionedRequestsE snd
   xhrResponsesE <- performRequestsAsync xhrRequestsE
-  delay 0.000001 $ traceEvent "frontend - xhr result" $ ffilter ((/=) Map.empty) $ cachedResponsesE <> (fmap . fmap) extractBody xhrResponsesE
+  delay 0.000001 $ ffilter ((/=) Map.empty) $ cachedResponsesE <> (fmap . fmap) extractBody xhrResponsesE
 
     where
 
@@ -143,7 +142,7 @@ type XhrConstraints t m =
   )
 
 reqXhrHandler :: (PerformEvent t m, MonadIO (Performable m)) => IORef (Map Int WireFormat) -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
-reqXhrHandler cache requestsE = traceEvent "server - xhr result" <$> (performEvent $ fmap toXhrRequest requestsE)
+reqXhrHandler cache = performEvent . fmap toXhrRequest
   where
     toXhrRequest = traverse $ \wire -> runReq defaultHttpConfig $ do
       response <- responseBody <$> req POST -- method
