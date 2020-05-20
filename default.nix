@@ -8,6 +8,7 @@ let
   reflexPlatformSrc = githubTarball "reflex-frp" "reflex-platform" "df43a921befd11e5635dc604e9911c2822ac42ec";
   obeliskSrc = githubTarball "obsidiansystems" "obelisk" "v0.8.0.0";
   morpheusSrc = githubTarball "morpheusgraphql" "morpheus-graphql" "7629168d4641d96b5a12dc20ab606fb54bea68ad";
+  morpheusSrcLocal = ./../morpheus-graphql;
   
 in
 
@@ -41,7 +42,7 @@ in
 
     morpheus-graphql = self.callCabal2nix "morpheus-graphql" morpheusSrc {};
     morpheus-graphql-core = self.callCabal2nix "morpheus-graphql-core" "${morpheusSrc}/morpheus-graphql-core" {};
-    morpheus-graphql-client = self.callCabal2nix "morpheus-graphql-client" "${morpheusSrc}/morpheus-graphql-client" {};
+    morpheus-graphql-client = self.callCabal2nix "morpheus-graphql-client" "${morpheusSrcLocal}/morpheus-graphql-client" {};
   };
   
   shellToolOverrides = self: super: with pkgs; with haskell.lib; {

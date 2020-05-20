@@ -79,7 +79,7 @@ newtype ViewT t view err m a
     , MonadIO
     , MonadHold t
     , MonadSample t
-    , HasSource t js
+    -- , HasSource t js
     , DomBuilder t
     , NotReady t
     , PostBuild t

@@ -14,6 +14,7 @@ executable blog
                , base
                , boomerang
                , bytestring
+               , constraints
                , containers
                , dependent-sum
                , ghcjs-dom

@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes        #-}
 {-# LANGUAGE ConstraintKinds            #-}
 {-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE DeriveGeneric              #-}
@@ -38,6 +39,7 @@ import           Data.Map
 import qualified Data.Map                               as Map
 import           Data.Maybe                             (isJust)
 import           Data.Monoid                            (Sum (..), getSum)
+import           Data.Proxy                             (Proxy (..))
 import           Data.Text                              (Text)
 import qualified Data.Text                              as T
 import qualified Data.Text.Encoding                     as T
@@ -68,6 +70,8 @@ import           Data.Morpheus.Document
 import           Data.Morpheus.Types                    (GQLRootResolver (..),
                                                          ResolverQ,
                                                          Undefined (..))
+import           Data.Morpheus.Types.IO                 (GQLRequest (..),
+                                                         JSONResponse (..))
 
 import           Data.Map.Monoidal                      (MonoidalMap)
 import qualified Data.Map.Monoidal                      as MMap
@@ -80,17 +84,17 @@ import           View
 
 mkStaticApp "static"
 
-importGQLDocumentWithNamespace "schema.graphql"
+-- importGQLDocumentWithNamespace "schema.graphql"
 
-defineByDocumentFile
-  "schema.graphql"
-  [gql|
-    query GetDeity ($goName: String!)
-    {
-      deity (name: $goName)
-      { power }
-    }
-  |]
+-- defineByDocumentFile
+--   "schema.graphql"
+--   [gql|
+--     query GetDeity ($goName: String!)
+--     {
+--       deity (name: $goName)
+--       { power }
+--     }
+--   |]
 
 instance Hashable GetDeityArgs
 
@@ -112,11 +116,14 @@ echoApp request respond = do
   lbs <- lazyRequestBody request
   respond $ responseLBS ok200 [(hContentType, "application/json")] lbs
 
+instance Hashable GQLRequest
+
 app :: Application
 app request respond = do
 
   -- (state, html) <- renderStatic' . runHydratableT . runSourceT ("http://graphql.localhost:3000", constant Map.empty) $
-  (state, html) <- renderStatic' . runHydratableT $ runSourceT ("http://graphql.localhost:3000", constant Map.empty) $
+  -- (state, html) <- renderStatic' . runHydratableT $ runSourceT ("http://graphql.localhost:3000", constant Map.empty) $
+  (state, html) <- renderStatic' . runHydratableT $
     el "html" $ do
       el "head" $ do
         elAttr "script" ("src" =: "http://jsaddle.localhost:3000/jsaddle.js") blank
@@ -138,27 +145,46 @@ app request respond = do
 
 -- type MyQuery a = MonoidalMap Int a
 
-newtype MyQuery a = MyQuery (MonoidalMap Int a)
-  deriving (Eq, Monoid, Semigroup, Group, Additive)
+-- newtype MyQuery a = MyQuery (MonoidalMap Int a)
+--   deriving (Eq, Monoid, Semigroup, Group, Additive)
 
 
 -- instance Functor MyQuery where
   -- fmap (MyQuery m) = fmap m
 
-instance (Monoid a, Eq a) => Q.Query (MyQuery a) where
-  type QueryResult (MyQuery a) = MonoidalMap Int a
-  crop (MyQuery (m :: _)) (res :: _) = res -- MMap.filter (\(k :: _) -> MMap.member k m) res
+-- newtype GQLQuery = GQLQuery (MonoidalMap IsGraphQLQuery (Sum Int))
 
-instance Num a => Group (Sum a) where
-  negateG (Sum i) = Sum $ negate i
+-- instance Q.Query GQLQuery where
+--   type QueryResult GQLQuery = MonoidalMap IsGraphQLQuery IsGraphQLResponse
 
-data IsGraphQLQuery = forall query. (Fetch query, Eq (Args query)) => IsGraphQLQuery { unGraphQLQuery :: (TypeRep query, Args query) }
+-- instance (Monoid a, Eq a) => Q.Query (MyQuery a) where
+--   type QueryResult (MyQuery a) = MonoidalMap Int a
+--   crop (MyQuery (m :: _)) (res :: _) = res -- MMap.filter (\(k :: _) -> MMap.member k m) res
 
-instance Eq IsGraphQLQuery where
-  (==) (IsGraphQLQuery (t1, a1)) (IsGraphQLQuery (t2, a2)) =
-    case eqTypeRep t1 t2 of
-      Nothing                    -> False
-      Just (HRefl :: q1 :~~: q2) -> (a1 :: Args q1) == (a2 :: Args q2)
+-- instance Num a => Group (Sum a) where
+--   negateG (Sum i) = Sum $ negate i
+
+-- data IsGraphQLResponse = IsGraphQLResponse
+
+-- instance Semigroup IsGraphQLResponse where
+--   (<>) _ a = a
+
+-- data IsGraphQLQuery = forall query. (Fetch query, Eq (Args query), Ord (Args query)) => IsGraphQLQuery { unGraphQLQuery :: (TypeRep query, Args query) }
+
+-- instance Eq IsGraphQLQuery where
+--   (==) (IsGraphQLQuery (t1, a1)) (IsGraphQLQuery (t2, a2)) =
+--     case eqTypeRep t1 t2 of
+--       Nothing                    -> False
+--       Just (HRefl :: q1 :~~: q2) -> (a1 :: Args q1) == (a2 :: Args q2)
+
+-- instance Ord IsGraphQLQuery where
+--   compare (IsGraphQLQuery (t1, a1)) (IsGraphQLQuery (t2, a2)) =
+--     case eqTypeRep t1 t2 of
+--       Nothing                    -> compare (SomeTypeRep t1) (SomeTypeRep t2)
+--       Just (HRefl :: q1 :~~: q2) -> compare a1 a2 -- (a1 :: Args q1) == (a2 :: Args q2)
+
+
+
 
 
 -- MonoidalMap (IsGraphQLQuery) (Sum Int)
@@ -191,7 +217,6 @@ instance Eq IsGraphQLQuery where
 -- data IsGraphqlQuery
 
 
-type XhrConstraints t m = (HasJSContext (Performable m), MonadJSM (Performable m), PerformEvent t m, TriggerEvent t m, HasJSContext m, MonadIO m, MonadJSM m)
 
 xhrQuery :: forall query m t. (XhrConstraints t m, FromJSON query, Fetch query) => Event t (Args query) -> m (Event t (Either String query))
 xhrQuery queryE = performEvent $ toPerformable <$> queryE
@@ -215,22 +240,32 @@ xhrQuery queryE = performEvent $ toPerformable <$> queryE
 
       pure body
 
+-- queryHandlerXhr :: (XhrConstraints t m, PostBuild t m, Monad m, Reflex t, MonadHold t m) => Dynamic t GQLQuery -> m (Dynamic t (QueryResult GQLQuery))
+-- queryHandlerXhr queryD = do
+--   buildE <- getPostBuild
+--   let queryE = updated queryD
+--       xhrE :: _ = ffor queryE $ \(GQLQuery m) -> MMap.mapWithKey toXhr m
 
-queryHandlerXhr :: (XhrConstraints t m, PostBuild t m, Monad m, Reflex t, MonadHold t m) => Dynamic t (MyQuery (Sum Int)) -> m (Dynamic t (QueryResult (MyQuery (Sum Int))))
-queryHandlerXhr queryD = do
-  buildE <- getPostBuild
-  let queryE = updated queryD
-  respE :: Event t (MonoidalMap Int XhrResponse) <- performRequestsAsync ((\(MyQuery m) -> (postJson "http://api.localhost:3000" . getSum) <$> m) <$> (leftmost [queryE, tagPromptlyDyn queryD buildE]))
-  holdDyn MMap.empty $ (filterMaybes <$> ((fmap . fmap) (fmap Sum . decodeXhrResponse) respE))
 
-  where
+--   respE :: Event t (MonoidalMap IsGraphQLQuery XhrResponse) <-
+--     performRequestsAsync $ (fmap . fmap) (postJson "http://api.localhost:3000") xhrE
+--   holdDyn MMap.empty $ (filterMaybes <$> ((fmap . fmap) (fmap (const IsGraphQLResponse) . (decodeXhrResponse @(JSONResponse GetDeity))) respE))
 
-    filterMaybes :: (Semigroup a, Ord k) => MonoidalMap k (Maybe a) -> MonoidalMap k a
-    filterMaybes = MMap.foldMapWithKey f
+-- processResponse JSONResponse {responseData = Just x} = Right x
+-- processResponse invalidResponse = Left (show invalidResponse)
 
-    f :: (Semigroup a, Ord k) => k -> Maybe a -> MonoidalMap k a
-    f k (Just a) = MMap.singleton k a
-    f k Nothing  = mempty
+
+  -- where
+
+  --   filterMaybes :: (Semigroup a, Ord k) => MonoidalMap k (Maybe a) -> MonoidalMap k a
+  --   filterMaybes = MMap.foldMapWithKey f
+
+  --   f :: (Semigroup a, Ord k) => k -> Maybe a -> MonoidalMap k a
+  --   f k (Just a) = MMap.singleton k a
+  --   f k Nothing  = mempty
+
+-- toXhr :: IsGraphQLQuery -> Sum Int -> GQLRequest
+-- toXhr (IsGraphQLQuery ((_ :: TypeRep query), (args :: Args query))) _ = buildReq (Proxy :: Proxy query) args
 
 queryDynUniq :: ( Monad m
                 , Reflex t
@@ -244,22 +279,24 @@ queryDynUniq :: ( Monad m
 queryDynUniq = holdUniqDyn <=< queryDyn
 
 
-queryW :: (XhrConstraints t m, Reflex t, MonadHold t m, DomBuilder t m, MonadFix m, PostBuild t m, MonadHold t m) => m ()
-queryW = do
-  rec
-    v <- queryHandlerXhr nubbedVs
-    (_a, vs) <- runQueryT widgetWithQuery v
-    nubbedVs <- holdUniqDyn $ incrementalToDynamic vs
-  blank
+-- queryW :: (XhrConstraints t m, Reflex t, MonadHold t m, DomBuilder t m, MonadFix m, PostBuild t m, MonadHold t m) => m ()
+-- queryW = do
+--   rec
+--     v <- queryHandlerXhr nubbedVs
+--     (_a, vs) <- runQueryT widgetWithQuery v
+--     nubbedVs <- holdUniqDyn $ incrementalToDynamic vs
+--   blank
 
-widgetWithQuery :: (XhrConstraints t m, MonadFix m, MonadHold t m, MonadQuery t (MyQuery (Sum Int)) m, PostBuild t m, DomBuilder t m) => m ()
-widgetWithQuery = do
-  clickE <- button "click"
-  countD <- count clickE
-  resultD <- queryDynUniq $ ffor countD $ \str -> MyQuery $ MMap.singleton (5 :: Int) (Sum str)
-  let textD = ffor (traceDyn "debug" resultD) (\m -> maybe "nothing" (T.pack . show . getSum) $ MMap.lookup (5 :: Int) m)
-  dynText textD
-  blank
+-- widgetWithQuery :: (XhrConstraints t m, MonadFix m, MonadHold t m, MonadQuery t GQLQuery m, PostBuild t m, DomBuilder t m) => m ()
+-- widgetWithQuery = do
+--   clickE <- button "click"
+--   countD <- count clickE
+--   resultD <- queryDynUniq $ ffor countD $ \str -> GQLQuery $ MMap.singleton myQuery (Sum str)
+--   let textD = ffor (traceDyn "debug" resultD) (\m -> maybe "nothing" (T.pack . show) $ MMap.lookup myQuery m)
+--   dynText textD
+--   blank
+--   where
+--     myQuery = IsGraphQLQuery (typeRep @GetDeity, GetDeityArgs "test")
 
 mainJS :: JSM ()
 mainJS = Main.mainWidget $ do
@@ -267,8 +304,9 @@ mainJS = Main.mainWidget $ do
   clickE <- button "click"
   textD <- holdDyn "before click" $ "afterClick " <$ leftmost [buildE, clickE]
   dynText textD
-  queryW
-  _ <- runSourceT ("http://graphql.localhost:3000", constant Map.empty) $ runViewT browserLocHandler appW
+  -- queryW
+  _ <- runViewT browserLocHandler appW
+  -- _ <- runSourceT ("http://graphql.localhost:3000", constant Map.empty) $ runViewT browserLocHandler appW
   blank
 
 
@@ -286,7 +324,8 @@ instance PathPiece View where
     HomeV -> ""
     ContactV -> "contact"
 
-appW :: (DomBuilder t m, MonadHold t m, HasSource t js m, HasView t View ViewError m, PerformEvent t m, Prerender js t m, PostBuild t m) => m ()
+-- appW :: (DomBuilder t m, MonadHold t m, HasSource t js m, HasView t View ViewError m, PerformEvent t m, Prerender js t m, PostBuild t m) => m ()
+appW :: (DomBuilder t m, MonadHold t m, HasView t View ViewError m, PerformEvent t m, Prerender js t m, PostBuild t m) => m ()
 appW = do
   viewD <- askView
   void $ dyn $ (\case
@@ -294,7 +333,7 @@ appW = do
                      HomeV    -> do
                        text "home"
                        linkTo ContactV $ text "go contact"
-                       graphQLwidget
+                       -- graphQLwidget
                      ContactV -> do
                        text "contact"
                        linkTo HomeV $ text "go home"
@@ -305,17 +344,17 @@ appW = do
                        linkTo ContactV $ text "go contact"
                ) <$> viewD
 
-graphQLwidget :: (HasSource t js m, PostBuild t m, MonadHold t m, DomBuilder t m) => m ()
-graphQLwidget = do
-  buildE <- getPostBuild
-  clickE <- button "click"
-  responseE :: Event t (Either String GetDeity) <- fetchData (GetDeityArgs "tac" <$ leftmost [buildE, clickE])
-  -- responseE :: Event t (Either String GetDeity) <- xhrQuery
-  responseD <- holdDyn "" $ ffor responseE $ \r -> case r of
-    Left s  -> T.pack $ "Error ---->" <> s
-    Right g -> T.pack $ "Success ---> " <> show g
-  display responseD
-  blank
+-- graphQLwidget :: (HasSource t js m, PostBuild t m, MonadHold t m, DomBuilder t m) => m ()
+-- graphQLwidget = do
+--   buildE <- getPostBuild
+--   clickE <- button "click"
+--   responseE :: Event t (Either String GetDeity) <- fetchData (GetDeityArgs "tac" <$ leftmost [buildE, clickE])
+--   -- responseE :: Event t (Either String GetDeity) <- xhrQuery
+--   responseD <- holdDyn "" $ ffor responseE $ \r -> case r of
+--     Left s  -> T.pack $ "Error ---->" <> s
+--     Right g -> T.pack $ "Success ---> " <> show g
+--   display responseD
+--   blank
 
 
 {-# INLINE renderStatic' #-}
