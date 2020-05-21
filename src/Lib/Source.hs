@@ -1,4 +1,4 @@
-module Source where
+module Lib.Source where
 
 import           Control.Lens
 import           Control.Monad.Fix      (MonadFix)

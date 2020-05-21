@@ -40,8 +40,8 @@ import           Data.Morpheus.Types                    (GQLRootResolver (..),
                                                          Undefined (..))
 
 
-import           Source
-import           View
+import           Lib.Source
+import           Lib.View
 
 import qualified GHCJS.DOM                              as DOM
 import qualified GHCJS.DOM.Document                     as DOM

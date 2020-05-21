@@ -1,4 +1,4 @@
-module View where
+module Lib.View where
 
 import           Control.Lens                  hiding (element)
 import           Control.Monad.Fix             (MonadFix)
@@ -18,8 +18,6 @@ import           Language.Javascript.JSaddle   (MonadJSM)
 import           Reflex.Dom.Core
 import           Reflex.Host.Class
 import           Web.PathPieces
-
-import           Source
 
 
 class (Monad m, PathPiece view) => HasView t view err m | m -> view, m -> err, m -> t where

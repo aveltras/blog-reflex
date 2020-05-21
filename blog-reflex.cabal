@@ -6,95 +6,107 @@ build-type: Simple
 common shared
   hs-source-dirs: exe, src
   default-language: Haskell2010
-  ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints
-  default-extensions: ConstraintKinds
-                    , DataKinds
-                    , DefaultSignatures
-                    , DeriveGeneric
-                    , DerivingStrategies
-                    , ExistentialQuantification
-                    , FlexibleContexts
-                    , FlexibleInstances
-                    , FunctionalDependencies
-                    , GeneralizedNewtypeDeriving
-                    , KindSignatures
-                    , LambdaCase
-                    , MultiParamTypeClasses
-                    , OverloadedLabels
-                    , OverloadedStrings
-                    , QuasiQuotes
-                    , RankNTypes
-                    , RecordWildCards
-                    , RecursiveDo
-                    , ScopedTypeVariables
-                    , TemplateHaskell
-                    , TypeApplications
-                    , TypeFamilies
-                    , TypeOperators
-                    , UndecidableInstances
 
-  build-depends: aeson
-               , base
-               , boomerang
-               , bytestring
-               , case-insensitive
-               , cereal
-               , containers
-               , cookie
-               , cryptonite
-               , dependent-sum
-               , ghcjs-dom
-               , hashable
-               , jsaddle
-               , lens
-               , monoidal-containers
-               , morpheus-graphql-core
-               , morpheus-graphql-client
-               , mtl
-               , path-pieces
-               , random
-               , ref-tf
-               , reflex
-               , reflex-dom-core
-               , rio
-               , semialign
-               , text
-               , transformers
-               , unliftio
+  ghc-options:
+    -Wall
+    -Wcompat
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wredundant-constraints
+    
+  default-extensions:
+    ConstraintKinds
+    DataKinds
+    DefaultSignatures
+    DeriveGeneric
+    DerivingStrategies
+    ExistentialQuantification
+    FlexibleContexts
+    FlexibleInstances
+    FunctionalDependencies
+    GeneralizedNewtypeDeriving
+    KindSignatures
+    LambdaCase
+    MultiParamTypeClasses
+    OverloadedLabels
+    OverloadedStrings
+    QuasiQuotes
+    RankNTypes
+    RecordWildCards
+    RecursiveDo
+    ScopedTypeVariables
+    TemplateHaskell
+    TypeApplications
+    TypeFamilies
+    TypeOperators
+    UndecidableInstances
+
+  build-depends:
+      aeson
+    , base
+    , boomerang
+    , bytestring
+    , case-insensitive
+    , cereal
+    , containers
+    , cookie
+    , cryptonite
+    , dependent-sum
+    , ghcjs-dom
+    , hashable
+    , jsaddle
+    , lens
+    , monoidal-containers
+    , morpheus-graphql-core
+    , morpheus-graphql-client
+    , mtl
+    , path-pieces
+    , random
+    , ref-tf
+    , reflex
+    , reflex-dom-core
+    , rio
+    , semialign
+    , text
+    , transformers
+    , unliftio
 
 common shared-ghc
+  import: shared
   hs-source-dirs: src-ghc
   if impl(ghcjs)
     buildable: False
-  build-depends: generics-sop
-               , http-client
-               , http-types
-               , morpheus-graphql
-               , req
-               , sessionula
-               , sessionula-extra
-               , sessionula-file
-               , sessionula-wai
-               , squeal-postgresql
-               , wai
-               , wai-cors
-               , wai-extra
-               , wai-static-th
-               , warp
+  build-depends:
+      generics-sop
+    , http-client
+    , http-types
+    , morpheus-graphql
+    , req
+    , sessionula
+    , sessionula-extra
+    , sessionula-file
+    , sessionula-wai
+    , squeal-postgresql
+    , wai
+    , wai-cors
+    , wai-extra
+    , wai-static-th
+    , warp
 
 executable devel
-  import: shared, shared-ghc
-  main-is: Server.hs
-  build-depends: jsaddle-warp
-               , wai-websockets
-               , websockets
+  import: shared-ghc
+  main-is: Devel.hs
+  build-depends:
+      jsaddle-warp
+    , wai-websockets
+    , websockets
 
 executable server
-  import: shared, shared-ghc
+  import: shared-ghc
   main-is: Server.hs
 
 executable client
   import: shared
-  main-is: Server.hs
+  main-is: Client.hs
   ghcjs-options: -dedupe
   cpp-options: -DGHCJS_BROWSER
