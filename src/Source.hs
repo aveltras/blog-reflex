@@ -45,6 +45,7 @@ import qualified Data.Text.Encoding          as T
 import           GHCJS.DOM.Types             (MonadJSM)
 import           Network.HTTP.Client         (CookieJar)
 import           Network.HTTP.Req
+import           Reflex.BehaviorWriter.Base
 import           Reflex.BehaviorWriter.Class
 import           Reflex.Dom.Core             hiding (Query, Value)
 
@@ -88,16 +89,40 @@ runSourceT :: forall t request response wireFormat m a.
   ( Reflex t
   , MonadFix m
   , MonadHold t m
+  , Hashable wireFormat
   , Show wireFormat
-  ) => (Event t (Map Int wireFormat) -> m (Event t (Map Int wireFormat)))
+  , PerformEvent t m
+  , TriggerEvent t m
+  , MonadIO (Performable m)
+  , PostBuild t m
+  ) => Map Int wireFormat
+  -> (Event t (Map Int wireFormat) -> m (Event t (Map Int wireFormat)))
   -> (forall b. request b -> (wireFormat, wireFormat -> response b))
   -> SourceT t request response m a
-  -> m a
-runSourceT requestHandler codec (SourceT widget) = mdo
-  wireResponsesE <- requestHandler wireRequestsE
+  -> m (a, Behavior t (Map Int wireFormat))
+runSourceT cacheMap requestHandler codec (SourceT widget) = mdo
+
+  cacheB :: Behavior t (Map Int wireFormat) <- accumB (\a b -> a <> (Map.fromList . fmap (\(_,v) -> (hash v, v)) . Map.toList $ b)) cacheMap $ wireResponsesE
+
+  let partitionedRequestsE = partitionRequests <$> (attach cacheB wireRequestsE)
+      wireRequestsNotCachedE = ffor (partitionedRequestsE) snd
+
+  cachedResponsesE <- delay 0.000001 $ ffor partitionedRequestsE fst
+
+  wireResponsesE <- requestHandler $ wireRequestsNotCachedE
   (result, requestE) <- runRequesterT widget responseE
-  (wireRequestsE, responseE) <- matchResponsesWithRequests codec requestE $ fmapMaybe id (safeHead . Map.toList <$> wireResponsesE)
-  pure result
+  (wireRequestsE, responseE) <- matchResponsesWithRequests codec requestE $ fmapMaybe id (safeHead . Map.toList <$> (wireResponsesE <> cachedResponsesE))
+
+  pure (result, cacheB)
+
+    where
+      partitionRequests :: (Map Int wireFormat, Map Int wireFormat) -> (Map Int wireFormat, Map Int wireFormat)
+      partitionRequests (cache, requests) = Map.foldrWithKey f (Map.empty, Map.empty) requests
+        where
+          f k a (x1, x2) = case Map.lookup (hash a) cache of
+            Nothing -> (x1, Map.insert k a x2)
+            Just bs -> (Map.insert k bs x1, x2)
+
 
 safeHead :: [a] -> Maybe a
 safeHead = \case
@@ -117,22 +142,12 @@ graphqlCodec (IsGraphQLQuery args) = (toWire, fromWire)
       JSONResponse { responseErrors = Just errors } -> Left $ renderGQLErrors errors
       invalidResponse -> Left $ show invalidResponse
 
-reflexXhrHandler :: (XhrConstraints t m) => XhrRequestConfig () -> Behavior t (Map Int WireFormat) -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
-reflexXhrHandler xhrConfig cacheB requestsE = do
-  let partitionedRequestsE = partitionRequests <$> attach cacheB requestsE
-      cachedResponsesE = ffor partitionedRequestsE fst
-      xhrRequestsE = ffor partitionedRequestsE snd
-  xhrResponsesE <- performRequestsAsync xhrRequestsE
-  delay 0.000001 $ ffilter ((/=) Map.empty) $ cachedResponsesE <> (fmap . fmap) extractBody xhrResponsesE
+reflexXhrHandler :: (XhrConstraints t m) => XhrRequestConfig () -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
+reflexXhrHandler xhrConfig requestsE = do
+  xhrResponsesE <- performRequestsAsync $ (fmap . fmap) toXhrRequest requestsE
+  pure $ (fmap . fmap) extractBody xhrResponsesE
 
     where
-
-      partitionRequests :: (Map Int WireFormat, Map Int WireFormat) -> (Map Int WireFormat, Map Int (XhrRequest WireFormat))
-      partitionRequests (cache, requests) = Map.foldrWithKey f (Map.empty, Map.empty) requests
-        where
-          f k a (x1, x2) = case Map.lookup (hash a) cache of
-            Nothing -> (x1, Map.insert k (toXhrRequest a) x2)
-            Just bs -> (Map.insert k bs x1, x2)
 
       toXhrRequest :: WireFormat -> XhrRequest WireFormat
       toXhrRequest wire = xhrRequest "POST" "http://graphql.blog.local:3000" $ xhrConfig & xhrRequestConfig_sendData .~ wire
@@ -152,17 +167,15 @@ type XhrConstraints t m =
   , MonadJSM m
   )
 
-reqXhrHandler :: (PerformEvent t m, MonadIO (Performable m)) => Option Http -> IORef (Map Int WireFormat) -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
-reqXhrHandler opts cache = performEvent . fmap toXhrRequest
+reqXhrHandler :: (PerformEvent t m, MonadIO (Performable m)) => Option 'Http -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
+reqXhrHandler opts = performEvent . fmap toXhrRequest
   where
     toXhrRequest = traverse $ \wire -> runReq defaultHttpConfig $ do
-      response <- responseBody <$> req POST -- method
-                                   (http "graphql.blog.local") -- safe by construction URL
-                                   (ReqBodyBs wire) -- use built-in options or add your own
-                                   bsResponse -- specify how to interpret response
-                                   opts -- query params, headers, explicit port number, etc.
-      liftIO $ modifyIORef' cache $ Map.insert (hash wire) response
-      pure response
+      responseBody <$> req POST -- method
+                           (http "graphql.blog.local") -- safe by construction URL
+                           (ReqBodyBs wire) -- use built-in options or add your own
+                           bsResponse -- specify how to interpret response
+                           opts -- query params, headers, explicit port number, etc.
 
 
 
