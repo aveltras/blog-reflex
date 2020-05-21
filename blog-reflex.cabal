@@ -34,6 +34,7 @@ executable blog
                , reflex
                , reflex-dom-core
                , req
+               , rio
                , semialign
                , text
                , these

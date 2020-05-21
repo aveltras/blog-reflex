@@ -2,6 +2,15 @@ type Query {
   deity(name: String!): Deity!
 }
 
+type Mutation {
+  login(email: String!, password: String!): User
+  logout: Boolean
+}
+
+type User {
+  email: String!
+}
+
 """
 Description for Deity
 """
@@ -12,3 +21,4 @@ type Deity {
   name: String!
   power: String @deprecated(reason: "some reason for")
 }
+ 

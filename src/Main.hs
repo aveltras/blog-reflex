@@ -13,6 +13,7 @@
 {-# LANGUAGE PartialTypeSignatures      #-}
 {-# LANGUAGE QuasiQuotes                #-}
 {-# LANGUAGE RankNTypes                 #-}
+{-# LANGUAGE RecordWildCards            #-}
 {-# LANGUAGE RecursiveDo                #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
 {-# LANGUAGE TypeApplications           #-}
@@ -38,7 +39,7 @@ import qualified Data.Map                               as Map
 import           Data.Text                              (Text)
 import qualified Data.Text                              as T
 import qualified Data.Text.Encoding                     as T
-import           GHC.IORef
+-- import           GHC.IORef
 import           Language.Javascript.JSaddle            (JSM, eval, syncPoint)
 import qualified Language.Javascript.JSaddle.WebSockets as JW
 import           Network.HTTP.Types                     hiding (Query)
@@ -52,12 +53,16 @@ import           Network.WebSockets                     (defaultConnectionOption
 import           Reflex.Dom.Core                        hiding (Query)
 import           Reflex.Dom.Main                        as Main
 import           Reflex.Host.Class
+import           RIO
 import           Web.PathPieces
 
 import           Data.Morpheus                          (interpreter)
 import           Data.Morpheus.Client
 import           Data.Morpheus.Document
 import           Data.Morpheus.Types                    (GQLRootResolver (..),
+                                                         MUTATION, MutRes,
+                                                         ResolveM, Resolver,
+                                                         ResolverM, ResolverQ,
                                                          Undefined (..))
 
 
@@ -275,26 +280,34 @@ renderStatic' w = do
     a <- sample . current $ res
     return (a, BL.toStrict $ B.toLazyByteString bs')
 
-rootResolver :: GQLRootResolver IO () Query Undefined Undefined
-rootResolver =
-  GQLRootResolver
-    {
-      queryResolver = Query {queryDeity},
-      mutationResolver = Undefined,
-      subscriptionResolver = Undefined
-    }
-  where
-    queryDeity QueryDeityArgs {queryDeityArgsName} = pure Deity
-      {
-        deityName = pure "Morpheus"
-      , deityPower = pure (Just "Shapeshifting")
-      }
-
-api :: BL.ByteString -> IO BL.ByteString
-api = interpreter rootResolver
 
 graphqlApp :: Application
 graphqlApp request respond = do
   bs <- strictRequestBody request
-  resp <- api bs
+  resp <- runRIO Ctx $ interpreter rootResolver bs
   respond $ responseLBS ok200 [(hContentType, "application/json")] resp
+
+
+data Ctx = Ctx
+
+rootResolver :: GQLRootResolver (RIO Ctx) () Query Mutation Undefined
+rootResolver = GQLRootResolver
+  { queryResolver = Query { queryDeity = deityResolver }
+  , mutationResolver = Mutation { mutationLogin = loginResolver
+                                , mutationLogout = logoutResolver
+                                }
+  , subscriptionResolver = Undefined
+  }
+
+deityResolver :: QueryDeityArgs -> ResolverQ () (RIO Ctx) Deity
+deityResolver QueryDeityArgs {..} = pure Deity
+  { deityName = pure "Morpheus"
+  , deityPower = pure (Just "Shapeshifting")
+  }
+
+loginResolver :: MutationLoginArgs -> Resolver MUTATION () (RIO Ctx) (Maybe (User (Resolver MUTATION () (RIO Ctx))))
+loginResolver MutationLoginArgs {..} = do
+  pure $ Just $ User { userEmail = pure "email" }
+
+logoutResolver :: Resolver MUTATION () (RIO Ctx) (Maybe Bool)
+logoutResolver = error "not implemented"
