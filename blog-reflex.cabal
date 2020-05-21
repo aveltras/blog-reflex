@@ -7,8 +7,32 @@ common shared
   hs-source-dirs: exe, src
   default-language: Haskell2010
   ghc-options: -Wall -Wcompat -Wincomplete-record-updates -Wincomplete-uni-patterns -Wredundant-constraints
-  default-extensions: OverloadedStrings
+  default-extensions: ConstraintKinds
+                    , DataKinds
+                    , DefaultSignatures
+                    , DeriveGeneric
+                    , DerivingStrategies
+                    , ExistentialQuantification
+                    , FlexibleContexts
+                    , FlexibleInstances
+                    , FunctionalDependencies
+                    , GeneralizedNewtypeDeriving
+                    , KindSignatures
+                    , LambdaCase
+                    , MultiParamTypeClasses
+                    , OverloadedLabels
+                    , OverloadedStrings
+                    , QuasiQuotes
+                    , RankNTypes
+                    , RecordWildCards
+                    , RecursiveDo
+                    , ScopedTypeVariables
                     , TemplateHaskell
+                    , TypeApplications
+                    , TypeFamilies
+                    , TypeOperators
+                    , UndecidableInstances
+
   build-depends: aeson
                , base
                , boomerang
@@ -39,6 +63,9 @@ common shared
                , unliftio
 
 common shared-ghc
+  hs-source-dirs: src-ghc
+  if impl(ghcjs)
+    buildable: False
   build-depends: generics-sop
                , http-client
                , http-types
@@ -58,9 +85,6 @@ common shared-ghc
 executable devel
   import: shared, shared-ghc
   main-is: Server.hs
-  hs-source-dirs: src-ghc
-  if impl(ghcjs)
-    buildable: False
   build-depends: jsaddle-warp
                , wai-websockets
                , websockets
@@ -68,9 +92,6 @@ executable devel
 executable server
   import: shared, shared-ghc
   main-is: Server.hs
-  hs-source-dirs: src-ghc
-  if impl(ghcjs)
-    buildable: False
 
 executable client
   import: shared

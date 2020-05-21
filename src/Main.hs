@@ -1,27 +1,3 @@
-{-# LANGUAGE AllowAmbiguousTypes        #-}
-{-# LANGUAGE ConstraintKinds            #-}
-{-# LANGUAGE DeriveFunctor              #-}
-{-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE DerivingStrategies         #-}
-{-# LANGUAGE ExistentialQuantification  #-}
-{-# LANGUAGE FlexibleContexts           #-}
-{-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE LambdaCase                 #-}
-{-# LANGUAGE MultiParamTypeClasses      #-}
-{-# LANGUAGE NamedFieldPuns             #-}
-{-# LANGUAGE PartialTypeSignatures      #-}
-{-# LANGUAGE QuasiQuotes                #-}
-{-# LANGUAGE RankNTypes                 #-}
-{-# LANGUAGE RecordWildCards            #-}
-{-# LANGUAGE RecursiveDo                #-}
-{-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE TypeApplications           #-}
-{-# LANGUAGE TypeFamilies               #-}
-{-# LANGUAGE TypeOperators              #-}
-{-# LANGUAGE TypeSynonymInstances       #-}
-{-# LANGUAGE UndecidableInstances       #-}
-
 module Main where
 
 import           Control.Monad                          (forM_, void)
@@ -134,30 +110,9 @@ placeholder = "%%%"
 app :: Application
 app request respond = do
 
-  -- let host = fromMaybe "" $ requestHeaderHost request
-  -- clientRequest <- parseRequest $ SC8.unpack $ "http://" <> host <> rawPathInfo request
-  -- let cookies :: _ = maybe [] id $ parseCookies <$> Prelude.lookup hCookie (requestHeaders request)
-
   let headers = Prelude.filter ((==) (CI.mk "Cookie") . fst) $ requestHeaders request
       clientOptions = flip foldMap headers $ \(n, v) -> Req.header (CI.original n) v
       clientOptions' = Req.port 3000 <> clientOptions
-  -- now <- getCurrentTime
-  -- let future = addUTCTime 10 now
-
-  -- let clientCookies :: [Cookie] =
-  --       flip fmap cookies $ \(n,v) -> Cookie
-  --         { cookie_name = n
-  --         , cookie_value = v
-  --         , cookie_expiry_time = future
-  --         , cookie_domain = ".blog.local"
-  --         , cookie_path = "/"
-  --         , cookie_creation_time = now
-  --         , cookie_last_access_time = now
-  --         , cookie_persistent = False
-  --         , cookie_host_only = False
-  --         , cookie_secure_only = False
-  --         , cookie_http_only = True
-  --         }
 
   let commentedPlaceholder = "<!--" <> placeholder <> "-->"
 
@@ -172,55 +127,10 @@ app request respond = do
         Right _ -> ok200
         Left _  -> status404
 
-  -- print cache
-
   let (a, b) = BS.breakSubstring commentedPlaceholder html
       prerenderedHtml = a <> "<script data-prerenderblob>//" <> (BL.toStrict . encode $ T.decodeUtf8 <$> cache) <> "</script>" <> BS.drop (BS.length commentedPlaceholder) b
 
   respond $ responseLBS status [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict prerenderedHtml
-
--- translateCookie :: SetCookie -> Cookie
--- translateCookie c = Cookie
---   { cookie_name = setCookieName c
---   , cookie_value = setCookieValue c
---   , cookie_expiry_time = undefined
---   , cookie_domain = undefined
---   , cookie_path = maybe "" id $ setCookiePath c
---   , cookie_creation_time = undefined
---   , cookie_last_access_time = undefined
---   , cookie_persistent = undefined
---   , cookie_host_only = undefined
---   , cookie_secure_only = setCookieSecure c
---   , cookie_http_only = setCookieHttpOnly c
---   }
-
-
--- data SetCookie = SetCookie
---     { setCookieName :: S.ByteString -- ^ The name of the cookie. Default value: @"name"@
---     , setCookieValue :: S.ByteString -- ^ The value of the cookie. Default value: @"value"@
---     , setCookiePath :: Maybe S.ByteString -- ^ The URL path for which the cookie should be sent. Default value: @Nothing@ (The browser defaults to the path of the request that sets the cookie).
---     , setCookieExpires :: Maybe UTCTime -- ^ The time at which to expire the cookie. Default value: @Nothing@ (The browser will default to expiring a cookie when the browser is closed).
---     , setCookieMaxAge :: Maybe DiffTime -- ^ The maximum time to keep the cookie, in seconds. Default value: @Nothing@ (The browser defaults to expiring a cookie when the browser is closed).
---     , setCookieDomain :: Maybe S.ByteString -- ^ The domain for which the cookie should be sent. Default value: @Nothing@ (The browser defaults to the current domain).
---     , setCookieHttpOnly :: Bool -- ^ Marks the cookie as "HTTP only", i.e. not accessible from Javascript. Default value: @False@
---     , setCookieSecure :: Bool -- ^ Instructs the browser to only send the cookie over HTTPS. Default value: @False@
---     , setCookieSameSite :: Maybe SameSiteOption -- ^ The "same site" policy of the cookie, i.e. whether it should be sent with cross-site requests. Default value: @Nothing@
---     }
-
--- data Cookie = Cookie
---   { cookie_name :: S.ByteString
---   , cookie_value :: S.ByteString
---   , cookie_expiry_time :: UTCTime
---   , cookie_domain :: S.ByteString
---   , cookie_path :: S.ByteString
---   , cookie_creation_time :: UTCTime
---   , cookie_last_access_time :: UTCTime
---   , cookie_persistent :: Bool
---   , cookie_host_only :: Bool
---   , cookie_secure_only :: Bool
---   , cookie_http_only :: Bool
---   }
-
 
 bodyWidget :: (DynamicWriter t Text m, MonadIO (Performable m), Prerender js t m, PostBuild t m, HasSource t IsGraphQLQuery m, TriggerEvent t m, PerformEvent t m, MonadHold t m, DomBuilder t m, HasView t View ViewError m) => m ()
 bodyWidget = appW
