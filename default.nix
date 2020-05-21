@@ -30,6 +30,7 @@ in
   
   overrides = self: super: with pkgs.haskell.lib; let
     waiStaticSrc = pkgs.nix-gitignore.gitignoreSourcePure [./../wai-static-th/.gitignore] ./../wai-static-th;
+    sessionSrc = pkgs.nix-gitignore.gitignoreSourcePure [./../sessionula/.gitignore] ./../sessionula;
   in {
     wai-static-th = dontCheck (super.callCabal2nix "wai-static-th" waiStaticSrc {});
                                                                                                            
@@ -40,6 +41,18 @@ in
     kind-generics = self.callHackageDirect { pkg = "kind-generics"; ver = "0.4.1.0"; sha256 = "1ryzmfzzns50ci43qhldshg6rfskq61z5807917llbp90ps5ngw0"; } {};
     kind-generics-th = self.callHackageDirect { pkg = "kind-generics-th"; ver = "0.2.2.0"; sha256 = "1vi9qv62rcm7nb5qylx8gzb1bzwna2p9mmzc35abz967vzg47h2s"; } {};
 
+    squeal-postgresql = dontCheck (super.callHackageDirect { pkg = "squeal-postgresql"; ver = "0.6.0.2"; sha256 = "1vq7c4yn1sz34da9y9brq2g1yjsp8vf94g7iz5wzrcvgap5jl6gx"; } {});
+    with-utf8 = super.callHackageDirect { pkg = "with-utf8"; ver = "1.0.1.0"; sha256 = "129bsyawcmfig1m3cch91d4nn6wlji3g5lm26jkf08yp54l76lrq"; } {};
+    free-categories = super.callHackageDirect { pkg = "free-categories"; ver = "0.2.0.0"; sha256 = "1grlvy8r7nbb7g8sx5a5x6az03bzli510zjpp5dpliidvajncci9"; } {};
+
+    sessionula = dontCheck (super.callCabal2nix "sessionula" "${sessionSrc}/sessionula" {});
+    sessionula-extra = dontCheck (super.callCabal2nix "sessionula-extra" "${sessionSrc}/sessionula-extra" {});
+    sessionula-file = dontCheck (super.callCabal2nix "sessionula-file" "${sessionSrc}/backend/sessionula-file" {});
+    sessionula-hasql = null;
+    sessionula-hedis = null;
+    sessionula-wai = dontCheck (super.callCabal2nix "sessionula-wai" "${sessionSrc}/frontend/sessionula-wai" {});
+
+    
     morpheus-graphql = self.callCabal2nix "morpheus-graphql" morpheusSrc {};
     morpheus-graphql-core = self.callCabal2nix "morpheus-graphql-core" "${morpheusSrc}/morpheus-graphql-core" {};
     morpheus-graphql-client = self.callCabal2nix "morpheus-graphql-client" "${morpheusSrcLocal}/morpheus-graphql-client" {};

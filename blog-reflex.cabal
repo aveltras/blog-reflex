@@ -14,9 +14,12 @@ executable blog
                , base
                , boomerang
                , bytestring
+               , cereal
                , constraints
                , containers
+               , cryptonite
                , dependent-sum
+               , generics-sop
                , ghcjs-dom
                , hashable
                , http-types
@@ -36,6 +39,11 @@ executable blog
                , req
                , rio
                , semialign
+               , sessionula
+               , sessionula-extra
+               , sessionula-file
+               , sessionula-wai
+               , squeal-postgresql
                , text
                , these
                , transformers

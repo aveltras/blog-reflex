@@ -36,6 +36,7 @@ import           Data.Dependent.Sum                     (DSum (..))
 import           Data.Functor.Identity                  (Identity (..))
 import           Data.Map
 import qualified Data.Map                               as Map
+import           Data.Serialize                         (Serialize)
 import           Data.Text                              (Text)
 import qualified Data.Text                              as T
 import qualified Data.Text.Encoding                     as T
@@ -74,6 +75,15 @@ import qualified GHCJS.DOM.HTMLScriptElement            as DOM
 import qualified GHCJS.DOM.ParentNode                   as DOM
 import qualified GHCJS.DOM.Types                        as DOM
 
+import qualified Sessionula                             as Session (Handle, defaultConfig,
+                                                                    setup)
+import qualified Sessionula.Extra                       as Session
+import qualified Sessionula.Frontend.Wai                as Session
+
+import           Sessionula.Backend.File
+
+import           App.Database.Schema
+
 mkStaticApp "static"
 
 importGQLDocumentWithNamespace "schema.graphql"
@@ -84,25 +94,28 @@ defineByDocumentFile
     query GetDeity ($goName: String!)
     {
       deity (name: $goName)
-      { power }
+      { name, power }
     }
   |]
 
 main :: IO ()
 main = do
   let port = 3000
+
+  manager <- Session.setup Session.defaultConfig =<< fileStorage "/tmp/sessions"
+
+
   jsApp <- JW.jsaddleOr defaultConnectionOptions (mainJS >> syncPoint) $ JW.jsaddleAppWithJs $ JW.jsaddleJs' (Just $ "http://jsaddle.localhost:" <> (C8.pack . show) port) False
   Warp.run port $ vhost
     [ ((==) (Just . T.encodeUtf8 . T.pack . (<>) "static.localhost:" $ show port) . requestHeaderHost, gzip def $ staticApp True)
     , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "jsaddle.localhost:" $ show port) . requestHeaderHost, cors (const (Just $ simpleCorsResourcePolicy { corsRequestHeaders = [ "content-type" ] } )) $ jsApp)
-    , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "graphql.localhost:" $ show port) . requestHeaderHost, simpleCors graphqlApp)
+    , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "graphql.localhost:" $ show port) . requestHeaderHost, Session.middleware manager Session.defaultSessionCookie { Session.setCookieSecure = False } Session.defaultCsrfSettings { Session.csrfExcludedMethods = [methodGet, methodPost]} $ simpleCors graphqlApp)
     , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "api.localhost:" $ show port) . requestHeaderHost, cors (const (Just $ simpleCorsResourcePolicy { corsRequestHeaders = [ "content-type" ] } )) $ echoApp)
     , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "localhost:" $ show port) . requestHeaderHost, app)
     ] $ const $ flip ($) (responseLBS status503 [] "Service unavailable")
 
 echoApp :: Application
 echoApp request respond = do
-  -- num :: Int <- randomRIO (1, 10)
   lbs <- lazyRequestBody request
   respond $ responseLBS ok200 [(hContentType, "application/json")] lbs
 
@@ -130,7 +143,6 @@ app request respond = do
       prerenderedHtml = a <> "<script data-prerenderblob>//" <> (BL.toStrict . encode $ T.decodeUtf8 <$> cache) <> "</script>" <> BS.drop (BS.length commentedPlaceholder) b
 
   respond $ responseLBS status [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict prerenderedHtml
-  -- respond $ responseLBS status [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict html
 
 
 headWidget :: (DomBuilder t m) => m ()
@@ -274,11 +286,21 @@ renderStatic' w = do
 
 graphqlApp :: Application
 graphqlApp request respond = do
+  let sessionHandle = Session.extractSession request
   bs <- lazyRequestBody request
-  resp <- runRIO Ctx $ interpreter rootResolver bs
+  resp <- runRIO (Ctx sessionHandle) $ interpreter rootResolver bs
   respond $ responseLBS ok200 [(hContentType, "application/json")] resp
 
+newtype UserId = UserId Int32
+  deriving (Serialize)
+
 data Ctx = Ctx
+  { ctxSession :: Session.Handle UserId
+  }
+
+instance Session.HasSession Ctx where
+  type Auth Ctx = UserId
+  sessionL = lens ctxSession (\x y -> x { ctxSession = y })
 
 rootResolver :: GQLRootResolver (RIO Ctx) () Query Mutation Undefined
 rootResolver = GQLRootResolver
@@ -306,10 +328,12 @@ articlesResolver :: Resolver QUERY () (RIO Ctx) (Maybe [Maybe (Article (Resolver
 articlesResolver = error "not implemented"
 
 deityResolver :: QueryDeityArgs -> ResolverQ () (RIO Ctx) Deity
-deityResolver QueryDeityArgs {..} = pure Deity
-  { deityName = pure "Morpheus"
-  , deityPower = pure (Just "Shapeshifting")
-  }
+deityResolver QueryDeityArgs {..} = do
+  mAuth <- lift $ Session.authStatus
+  pure Deity
+    { deityName = pure $ if isJust mAuth then "Authenticated Morpheus" else "Guest Morpheus"
+    , deityPower = pure (Just "Shapeshifting")
+    }
 
 loginResolver :: MutationLoginArgs -> Resolver MUTATION () (RIO Ctx) (Maybe (User (Resolver MUTATION () (RIO Ctx))))
 loginResolver MutationLoginArgs {..} = do
