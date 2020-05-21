@@ -1,1 +1,1 @@
-cradle: {cabal: {component: "exe:blog"}}
+cradle: {cabal: {component: "exe:devel"}}

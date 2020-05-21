@@ -30,7 +30,6 @@ import           Control.Monad.Ref
 import           Data.Aeson
 import qualified Data.ByteString                        as BS
 import qualified Data.ByteString.Builder                as B
-import qualified Data.ByteString.Char8                  as SC8
 import qualified Data.ByteString.Lazy                   as BL
 import qualified Data.ByteString.Lazy.Char8             as C8
 import           Data.Dependent.Sum                     (DSum (..))
@@ -41,8 +40,6 @@ import           Data.Serialize                         (Serialize)
 import           Data.Text                              (Text)
 import qualified Data.Text                              as T
 import qualified Data.Text.Encoding                     as T
-import           RIO.Time
--- import           GHC.IORef
 import           Language.Javascript.JSaddle            (JSM, eval, syncPoint)
 import qualified Language.Javascript.JSaddle.WebSockets as JW
 import           Network.HTTP.Types                     hiding (Query)
@@ -63,10 +60,8 @@ import           Data.Morpheus.Client
 import           Data.Morpheus.Document
 import           Data.Morpheus.Types                    (GQLRootResolver (..),
                                                          MUTATION, QUERY,
-                                                         Resolver, ResolverM,
-                                                         ResolverQ,
-                                                         Undefined (..),
-                                                         liftEither)
+                                                         Resolver, ResolverQ,
+                                                         Undefined (..))
 
 
 import           Source
@@ -84,30 +79,21 @@ import qualified Sessionula.Extra                       as Session
 import qualified Sessionula.Frontend.Wai                as Session
 
 import qualified Data.CaseInsensitive                   as CI
-import           Network.HTTP.Client                    (Cookie (..),
-                                                         createCookieJar,
-                                                         parseRequest)
 import qualified Network.HTTP.Req                       as Req
-import           Reflex.DynamicWriter.Base
-import           Reflex.DynamicWriter.Class
 import           Sessionula.Backend.File
-import           Web.Cookie
-
-import           App.Database.Schema
 
 mkStaticApp "static"
 
 importGQLDocumentWithNamespace "schema.graphql"
 
-defineByDocumentFile
-  "schema.graphql"
-  [gql|
-    query GetDeity ($goName: String!)
-    {
-      deity (name: $goName)
-      { name, power }
+defineByDocumentFile "schema.graphql" [gql|
+  query GetDeity ($goName: String!) {
+    deity (name: $goName) {
+      name
+      power
     }
-  |]
+  }
+|]
 
 main :: IO ()
 main = do
@@ -239,18 +225,17 @@ app request respond = do
 bodyWidget :: (DynamicWriter t Text m, MonadIO (Performable m), Prerender js t m, PostBuild t m, HasSource t IsGraphQLQuery m, TriggerEvent t m, PerformEvent t m, MonadHold t m, DomBuilder t m, HasView t View ViewError m) => m ()
 bodyWidget = appW
 
-data View = HomeV
-          | ContactV
-
+data View = Homepage
+          | Contact
 
 instance PathPiece View where
   fromPathPiece = \case
-    "" -> Just HomeV
-    "contact" -> Just ContactV
+    "" -> Just Homepage
+    "contact" -> Just Contact
     _ -> Nothing
   toPathPiece = \case
-    HomeV -> ""
-    ContactV -> "contact"
+    Homepage -> ""
+    Contact -> "contact"
 
 headWidget :: (DomBuilder t m, PostBuild t m, Prerender js t m) => Dynamic t Text -> m ()
 headWidget headD = do
@@ -263,18 +248,18 @@ appW = do
   viewD <- askView
   void $ dyn $ (\case
                    Right v -> case v of
-                     HomeV    -> do
+                     Homepage    -> do
                        tellDyn $ constDyn "home"
                        text "home"
-                       linkTo ContactV $ text "go contact"
+                       linkTo Contact $ text "go contact"
                        graphQLwidget
-                     ContactV -> do
+                     Contact -> do
                        tellDyn $ constDyn "contact"
-                       linkTo HomeV $ text "go home"
+                       linkTo Homepage $ text "go home"
                    Left e -> case e of
                      ViewError -> do
-                       linkTo HomeV $ text "go home"
-                       linkTo ContactV $ text "go contact"
+                       linkTo Homepage $ text "go home"
+                       linkTo Contact $ text "go contact"
                ) <$> viewD
 
 

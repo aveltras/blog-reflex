@@ -27,27 +27,23 @@
 module Source where
 
 import           Control.Lens
-import           Control.Monad.Fix           (MonadFix)
-import           Control.Monad.IO.Class      (MonadIO, liftIO)
+import           Control.Monad.Fix      (MonadFix)
+import           Control.Monad.IO.Class (MonadIO)
 import           Data.Aeson
-import qualified Data.ByteString             as BS
-import qualified Data.ByteString.Lazy        as BL
-import           Data.Coerce                 (coerce)
+import qualified Data.ByteString        as BS
+import qualified Data.ByteString.Lazy   as BL
+import           Data.Coerce            (coerce)
 import           Data.Hashable
-import           Data.IORef
-import           Data.Map                    (Map)
-import qualified Data.Map                    as Map
+import           Data.Map               (Map)
+import qualified Data.Map               as Map
 import           Data.Morpheus.Client
 import           Data.Morpheus.Error
 import           Data.Morpheus.Types.IO
-import           Data.Proxy                  (Proxy (..))
-import qualified Data.Text.Encoding          as T
-import           GHCJS.DOM.Types             (MonadJSM)
-import           Network.HTTP.Client         (CookieJar)
+import           Data.Proxy             (Proxy (..))
+import qualified Data.Text.Encoding     as T
+import           GHCJS.DOM.Types        (MonadJSM)
 import           Network.HTTP.Req
-import           Reflex.BehaviorWriter.Base
-import           Reflex.BehaviorWriter.Class
-import           Reflex.Dom.Core             hiding (Query, Value)
+import           Reflex.Dom.Core        hiding (Query, Value)
 
 
 type HasSource t request m =
@@ -103,6 +99,7 @@ runSourceT :: forall t request response wireFormat m a.
 runSourceT cacheMap requestHandler codec (SourceT widget) = mdo
 
   cacheB :: Behavior t (Map Int wireFormat) <- accumB (\a b -> a <> (Map.fromList . fmap (\(_,v) -> (hash v, v)) . Map.toList $ b)) cacheMap $ wireResponsesE
+  -- hash request and not response !
 
   let partitionedRequestsE = partitionRequests <$> (attach cacheB wireRequestsE)
       wireRequestsNotCachedE = ffor (partitionedRequestsE) snd
