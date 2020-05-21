@@ -1,0 +1,10 @@
+{
+  "private": true,
+  "scripts": {
+    "build:css": "postcss -w ./theme/css/main.css --dir ./static"
+  },
+  "dependencies": {
+    "postcss-cli": "^7.1.1",
+    "tailwindcss": "^1.4.6"
+  }
+}
