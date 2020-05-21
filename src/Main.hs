@@ -24,7 +24,7 @@
 
 module Main where
 
-import           Control.Monad                          (forM_, join, void)
+import           Control.Monad                          (forM_, void)
 import           Control.Monad.IO.Class                 (MonadIO)
 import           Control.Monad.Ref
 import           Data.Aeson
@@ -51,7 +51,6 @@ import           Network.Wai.Middleware.Vhost           (vhost)
 import           Network.Wai.Static.TH                  (mkStaticApp)
 import           Network.WebSockets                     (defaultConnectionOptions)
 import           Reflex.Dom.Core                        hiding (Query)
-import           Reflex.Dom.Main                        as Main
 import           Reflex.Host.Class
 import           RIO
 import           Web.PathPieces
@@ -60,9 +59,9 @@ import           Data.Morpheus                          (interpreter)
 import           Data.Morpheus.Client
 import           Data.Morpheus.Document
 import           Data.Morpheus.Types                    (GQLRootResolver (..),
-                                                         MUTATION, MutRes,
-                                                         ResolveM, Resolver,
-                                                         ResolverM, ResolverQ,
+                                                         MUTATION, QUERY,
+                                                         Resolver, ResolverM,
+                                                         ResolverQ,
                                                          Undefined (..))
 
 
@@ -116,10 +115,9 @@ app request respond = do
 
   let commentedPlaceholder = "<!--" <> placeholder <> "-->"
 
-  -- (state, html) <- renderStatic' . runHydratableT . runSourceT ("http://graphql.localhost:3000", constant Map.empty) $
   (state, html) <- renderStatic' . runHydratableT . runSourceT (reqXhrHandler cacheRef) graphqlCodec . runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) $
     el "html" $ do
-      el "head" $ void headWidget
+      el "head" $ void headWidget >> (comment $ T.decodeUtf8 placeholder)
       el "body" bodyWidget
 
   let status = case state of
@@ -138,17 +136,10 @@ app request respond = do
 headWidget :: (DomBuilder t m) => m ()
 headWidget = do
   elAttr "script" ("src" =: "http://jsaddle.localhost:3000/jsaddle.js") blank
-  elAttr "link" ("rel" =: "stylesheet" <> "href" =: ("http://static.localhost:3000/" <> test_css)) blank
-  comment $ T.decodeUtf8 placeholder
+  elAttr "link" ("rel" =: "stylesheet" <> "href" =: ("http://static.localhost:3000/" <> main_css)) blank
 
 bodyWidget :: (MonadIO (Performable m), Prerender js t m, PostBuild t m, HasSource t IsGraphQLQuery m, TriggerEvent t m, PerformEvent t m, MonadHold t m, DomBuilder t m, HasView t View ViewError m) => m ()
 bodyWidget = appW
---do
-  -- text "hello"
-  -- buildE <- getPostBuild
-  -- textD <- holdDyn "before click" $ "afterClick " <$ buildE
-  -- dynText textD
-  --appW
 
 data View = HomeV
           | ContactV
@@ -212,9 +203,9 @@ mainJS = do
       _ <- runSourceT (reflexXhrHandler def (constant cacheMap')) graphqlCodec $ runViewT browserLocHandler appW
       blank
 
-    w :: (FrontendWidget () -> TriggerEventT DomTimeline (DomCoreWidget ()) x)
-      -> (FrontendWidget () -> TriggerEventT DomTimeline (DomCoreWidget ()) x)
-      -> TriggerEventT DomTimeline (DomCoreWidget ()) x
+    -- w :: (FrontendWidget () -> TriggerEventT DomTimeline (DomCoreWidget ()) x)
+      -- -> (FrontendWidget () -> TriggerEventT DomTimeline (DomCoreWidget ()) x)
+      -- -> TriggerEventT DomTimeline (DomCoreWidget ()) x
     w appendHead appendBody = appendHead headWidget >> appendBody bodyWidget'
 
 
@@ -283,21 +274,36 @@ renderStatic' w = do
 
 graphqlApp :: Application
 graphqlApp request respond = do
-  bs <- strictRequestBody request
+  bs <- lazyRequestBody request
   resp <- runRIO Ctx $ interpreter rootResolver bs
   respond $ responseLBS ok200 [(hContentType, "application/json")] resp
-
 
 data Ctx = Ctx
 
 rootResolver :: GQLRootResolver (RIO Ctx) () Query Mutation Undefined
 rootResolver = GQLRootResolver
-  { queryResolver = Query { queryDeity = deityResolver }
-  , mutationResolver = Mutation { mutationLogin = loginResolver
-                                , mutationLogout = logoutResolver
-                                }
+  { queryResolver = Query
+    { queryDeity = deityResolver
+    , queryArticles = articlesResolver
+    , queryArticle = articleResolver
+    , queryPage = pageResolver
+    }
+  , mutationResolver = Mutation
+    { mutationLogin = loginResolver
+    , mutationLogout = logoutResolver
+    , mutationSendMessage = sendMessageResolver
+    }
   , subscriptionResolver = Undefined
   }
+
+pageResolver :: QueryPageArgs -> (Resolver QUERY () (RIO Ctx) (Maybe (Page (Resolver QUERY () (RIO Ctx)))))
+pageResolver = error "not implemented"
+
+articleResolver :: QueryArticleArgs -> (Resolver QUERY () (RIO Ctx) (Maybe (Article (Resolver QUERY () (RIO Ctx)))))
+articleResolver = error "not implemented"
+
+articlesResolver :: Resolver QUERY () (RIO Ctx) (Maybe [Maybe (Article (Resolver QUERY () (RIO Ctx)))])
+articlesResolver = error "not implemented"
 
 deityResolver :: QueryDeityArgs -> ResolverQ () (RIO Ctx) Deity
 deityResolver QueryDeityArgs {..} = pure Deity
@@ -309,5 +315,8 @@ loginResolver :: MutationLoginArgs -> Resolver MUTATION () (RIO Ctx) (Maybe (Use
 loginResolver MutationLoginArgs {..} = do
   pure $ Just $ User { userEmail = pure "email" }
 
-logoutResolver :: Resolver MUTATION () (RIO Ctx) (Maybe Bool)
+logoutResolver :: Resolver MUTATION () (RIO Ctx) Bool
 logoutResolver = error "not implemented"
+
+sendMessageResolver :: MutationSendMessageArgs -> Resolver MUTATION () (RIO Ctx) Bool
+sendMessageResolver = error "not implemented"

@@ -49,6 +49,7 @@ in
     ghcide = (import "${obeliskSrc}/haskell-overlays/ghcide.nix" self super).ghcide;
     haskell-ide-engine = null;
     stylish-haskell = justStaticExecutables self.stylish-haskell;
+    inherit yarn;
 
     watchExe = (writeShellScriptBin "watchExe" '' 
       ${ghcid}/bin/ghcid -c "cabal v2-repl exe:$1" -W -T Main.main ''${@:2}

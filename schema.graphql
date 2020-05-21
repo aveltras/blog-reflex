@@ -1,14 +1,37 @@
 type Query {
   deity(name: String!): Deity!
+  articles: [Article]
+  article(slug: String!): Article
+  page(slug: String!): Page
 }
 
 type Mutation {
   login(email: String!, password: String!): User
-  logout: Boolean
+  logout: Boolean!
+  sendMessage(message: Message!): Boolean!
 }
 
 type User {
   email: String!
+}
+
+input Message {
+  from: String!
+  email: String!
+  phone: String
+  body: String!
+}
+
+type Article {
+  title: String!
+  slug: String!
+  body: String!
+}
+
+type Page {
+  title: String!
+  slug: String!
+  body: String!
 }
 
 """
