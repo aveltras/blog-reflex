@@ -14,14 +14,17 @@ executable blog
                , base
                , boomerang
                , bytestring
+               , case-insensitive
                , cereal
                , constraints
                , containers
+               , cookie
                , cryptonite
                , dependent-sum
                , generics-sop
                , ghcjs-dom
                , hashable
+               , http-client
                , http-types
                , jsaddle
                , jsaddle-warp

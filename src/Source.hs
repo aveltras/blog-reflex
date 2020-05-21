@@ -42,6 +42,7 @@ import           Data.Morpheus.Types.IO
 import           Data.Proxy             (Proxy (..))
 import qualified Data.Text.Encoding     as T
 import           GHCJS.DOM.Types        (MonadJSM)
+import           Network.HTTP.Client    (CookieJar)
 import           Network.HTTP.Req
 import           Reflex.Dom.Core        hiding (Query, Value)
 
@@ -124,7 +125,7 @@ reflexXhrHandler xhrConfig cacheB requestsE = do
             Just bs -> (Map.insert k bs x1, x2)
 
       toXhrRequest :: WireFormat -> XhrRequest WireFormat
-      toXhrRequest wire = xhrRequest "POST" "http://graphql.localhost:3000" $ xhrConfig & xhrRequestConfig_sendData .~ wire
+      toXhrRequest wire = xhrRequest "POST" "http://graphql.blog.local:3000" $ xhrConfig & xhrRequestConfig_sendData .~ wire
 
       extractBody :: XhrResponse -> WireFormat
       extractBody xhrResponse = case xhrResponse ^. xhrResponse_responseText of
@@ -141,15 +142,15 @@ type XhrConstraints t m =
   , MonadJSM m
   )
 
-reqXhrHandler :: (PerformEvent t m, MonadIO (Performable m)) => IORef (Map Int WireFormat) -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
-reqXhrHandler cache = performEvent . fmap toXhrRequest
+reqXhrHandler :: (PerformEvent t m, MonadIO (Performable m)) => Option Http -> IORef (Map Int WireFormat) -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
+reqXhrHandler opts cache = performEvent . fmap toXhrRequest
   where
     toXhrRequest = traverse $ \wire -> runReq defaultHttpConfig $ do
       response <- responseBody <$> req POST -- method
-                                   (http "graphql.localhost") -- safe by construction URL
+                                   (http "graphql.blog.local") -- safe by construction URL
                                    (ReqBodyBs wire) -- use built-in options or add your own
                                    bsResponse -- specify how to interpret response
-                                   (port 3000) -- query params, headers, explicit port number, etc.
+                                   opts -- query params, headers, explicit port number, etc.
       liftIO $ modifyIORef' cache $ Map.insert (hash wire) response
       pure response
 

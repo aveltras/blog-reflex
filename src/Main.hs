@@ -30,6 +30,7 @@ import           Control.Monad.Ref
 import           Data.Aeson
 import qualified Data.ByteString                        as BS
 import qualified Data.ByteString.Builder                as B
+import qualified Data.ByteString.Char8                  as SC8
 import qualified Data.ByteString.Lazy                   as BL
 import qualified Data.ByteString.Lazy.Char8             as C8
 import           Data.Dependent.Sum                     (DSum (..))
@@ -40,6 +41,7 @@ import           Data.Serialize                         (Serialize)
 import           Data.Text                              (Text)
 import qualified Data.Text                              as T
 import qualified Data.Text.Encoding                     as T
+import           RIO.Time
 -- import           GHC.IORef
 import           Language.Javascript.JSaddle            (JSM, eval, syncPoint)
 import qualified Language.Javascript.JSaddle.WebSockets as JW
@@ -80,7 +82,13 @@ import qualified Sessionula                             as Session (Handle, defa
 import qualified Sessionula.Extra                       as Session
 import qualified Sessionula.Frontend.Wai                as Session
 
+import qualified Data.CaseInsensitive                   as CI
+import           Network.HTTP.Client                    (Cookie (..),
+                                                         createCookieJar,
+                                                         parseRequest)
+import qualified Network.HTTP.Req                       as Req
 import           Sessionula.Backend.File
+import           Web.Cookie
 
 import           App.Database.Schema
 
@@ -105,14 +113,27 @@ main = do
   manager <- Session.setup Session.defaultConfig =<< fileStorage "/tmp/sessions"
 
 
-  jsApp <- JW.jsaddleOr defaultConnectionOptions (mainJS >> syncPoint) $ JW.jsaddleAppWithJs $ JW.jsaddleJs' (Just $ "http://jsaddle.localhost:" <> (C8.pack . show) port) False
+  jsApp <- JW.jsaddleOr defaultConnectionOptions (mainJS >> syncPoint) $ JW.jsaddleAppWithJs $ JW.jsaddleJs' (Just $ "http://jsaddle.blog.local:" <> (C8.pack . show) port) False
   Warp.run port $ vhost
-    [ ((==) (Just . T.encodeUtf8 . T.pack . (<>) "static.localhost:" $ show port) . requestHeaderHost, gzip def $ staticApp True)
-    , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "jsaddle.localhost:" $ show port) . requestHeaderHost, cors (const (Just $ simpleCorsResourcePolicy { corsRequestHeaders = [ "content-type" ] } )) $ jsApp)
-    , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "graphql.localhost:" $ show port) . requestHeaderHost, Session.middleware manager Session.defaultSessionCookie { Session.setCookieSecure = False } Session.defaultCsrfSettings { Session.csrfExcludedMethods = [methodGet, methodPost]} $ simpleCors graphqlApp)
-    , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "api.localhost:" $ show port) . requestHeaderHost, cors (const (Just $ simpleCorsResourcePolicy { corsRequestHeaders = [ "content-type" ] } )) $ echoApp)
-    , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "localhost:" $ show port) . requestHeaderHost, app)
+    [ ((==) (Just . T.encodeUtf8 . T.pack . (<>) "static.blog.local:" $ show port) . requestHeaderHost, gzip def $ staticApp True)
+    , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "jsaddle.blog.local:" $ show port) . requestHeaderHost, cors (const (Just $ simpleCorsResourcePolicy { corsRequestHeaders = [ "content-type" ] } )) $ jsApp)
+    , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "graphql.blog.local:" $ show port) . requestHeaderHost, laxCors $ sessionMiddleware manager $ graphqlApp)
+    , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "api.blog.local:" $ show port) . requestHeaderHost, laxCors echoApp)
+    , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "blog.local:" $ show port) . requestHeaderHost, laxCors app)
     ] $ const $ flip ($) (responseLBS status503 [] "Service unavailable")
+
+    where
+      laxCors = cors $ const (Just $ simpleCorsResourcePolicy { corsRequestHeaders = [ "content-type" ]
+                                                              , corsOrigins = Just (["http://blog.local:3000"], True)
+                                                             } )
+
+      sessionMiddleware man =
+        Session.middleware
+        man
+        Session.defaultSessionCookie { Session.setCookieSecure = False
+                                     , Session.setCookieDomain = Just ".blog.local"
+                                     , Session.setCookieSameSite = Nothing }
+        Session.defaultCsrfSettings { Session.csrfExcludedMethods = [methodGet, methodPost] }
 
 echoApp :: Application
 echoApp request respond = do
@@ -124,11 +145,36 @@ placeholder = "%%%"
 app :: Application
 app request respond = do
 
+  -- let host = fromMaybe "" $ requestHeaderHost request
+  -- clientRequest <- parseRequest $ SC8.unpack $ "http://" <> host <> rawPathInfo request
+  -- let cookies :: _ = maybe [] id $ parseCookies <$> Prelude.lookup hCookie (requestHeaders request)
+
+  let headers = Prelude.filter ((==) (CI.mk "Cookie") . fst) $ requestHeaders request
+      clientOptions = flip foldMap headers $ \(n, v) -> Req.header (CI.original n) v
+      clientOptions' = Req.port 3000 <> clientOptions
+  -- now <- getCurrentTime
+  -- let future = addUTCTime 10 now
+
+  -- let clientCookies :: [Cookie] =
+  --       flip fmap cookies $ \(n,v) -> Cookie
+  --         { cookie_name = n
+  --         , cookie_value = v
+  --         , cookie_expiry_time = future
+  --         , cookie_domain = ".blog.local"
+  --         , cookie_path = "/"
+  --         , cookie_creation_time = now
+  --         , cookie_last_access_time = now
+  --         , cookie_persistent = False
+  --         , cookie_host_only = False
+  --         , cookie_secure_only = False
+  --         , cookie_http_only = True
+  --         }
+
   cacheRef <- newIORef Map.empty
 
   let commentedPlaceholder = "<!--" <> placeholder <> "-->"
 
-  (state, html) <- renderStatic' . runHydratableT . runSourceT (reqXhrHandler cacheRef) graphqlCodec . runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) $
+  (state, html) <- renderStatic' . runHydratableT . runSourceT (reqXhrHandler clientOptions' cacheRef) graphqlCodec . runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) $
     el "html" $ do
       el "head" $ void headWidget >> (comment $ T.decodeUtf8 placeholder)
       el "body" bodyWidget
@@ -144,11 +190,52 @@ app request respond = do
 
   respond $ responseLBS status [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict prerenderedHtml
 
+-- translateCookie :: SetCookie -> Cookie
+-- translateCookie c = Cookie
+--   { cookie_name = setCookieName c
+--   , cookie_value = setCookieValue c
+--   , cookie_expiry_time = undefined
+--   , cookie_domain = undefined
+--   , cookie_path = maybe "" id $ setCookiePath c
+--   , cookie_creation_time = undefined
+--   , cookie_last_access_time = undefined
+--   , cookie_persistent = undefined
+--   , cookie_host_only = undefined
+--   , cookie_secure_only = setCookieSecure c
+--   , cookie_http_only = setCookieHttpOnly c
+--   }
+
+
+-- data SetCookie = SetCookie
+--     { setCookieName :: S.ByteString -- ^ The name of the cookie. Default value: @"name"@
+--     , setCookieValue :: S.ByteString -- ^ The value of the cookie. Default value: @"value"@
+--     , setCookiePath :: Maybe S.ByteString -- ^ The URL path for which the cookie should be sent. Default value: @Nothing@ (The browser defaults to the path of the request that sets the cookie).
+--     , setCookieExpires :: Maybe UTCTime -- ^ The time at which to expire the cookie. Default value: @Nothing@ (The browser will default to expiring a cookie when the browser is closed).
+--     , setCookieMaxAge :: Maybe DiffTime -- ^ The maximum time to keep the cookie, in seconds. Default value: @Nothing@ (The browser defaults to expiring a cookie when the browser is closed).
+--     , setCookieDomain :: Maybe S.ByteString -- ^ The domain for which the cookie should be sent. Default value: @Nothing@ (The browser defaults to the current domain).
+--     , setCookieHttpOnly :: Bool -- ^ Marks the cookie as "HTTP only", i.e. not accessible from Javascript. Default value: @False@
+--     , setCookieSecure :: Bool -- ^ Instructs the browser to only send the cookie over HTTPS. Default value: @False@
+--     , setCookieSameSite :: Maybe SameSiteOption -- ^ The "same site" policy of the cookie, i.e. whether it should be sent with cross-site requests. Default value: @Nothing@
+--     }
+
+-- data Cookie = Cookie
+--   { cookie_name :: S.ByteString
+--   , cookie_value :: S.ByteString
+--   , cookie_expiry_time :: UTCTime
+--   , cookie_domain :: S.ByteString
+--   , cookie_path :: S.ByteString
+--   , cookie_creation_time :: UTCTime
+--   , cookie_last_access_time :: UTCTime
+--   , cookie_persistent :: Bool
+--   , cookie_host_only :: Bool
+--   , cookie_secure_only :: Bool
+--   , cookie_http_only :: Bool
+--   }
 
 headWidget :: (DomBuilder t m) => m ()
 headWidget = do
-  elAttr "script" ("src" =: "http://jsaddle.localhost:3000/jsaddle.js") blank
-  elAttr "link" ("rel" =: "stylesheet" <> "href" =: ("http://static.localhost:3000/" <> main_css)) blank
+  elAttr "script" ("src" =: "http://jsaddle.blog.local:3000/jsaddle.js") blank
+  elAttr "link" ("rel" =: "stylesheet" <> "href" =: ("http://static.blog.local:3000/" <> main_css)) blank
 
 bodyWidget :: (MonadIO (Performable m), Prerender js t m, PostBuild t m, HasSource t IsGraphQLQuery m, TriggerEvent t m, PerformEvent t m, MonadHold t m, DomBuilder t m, HasView t View ViewError m) => m ()
 bodyWidget = appW
@@ -202,17 +289,17 @@ mainJS = do
 
   let cacheMap = decode' @(Map Int Text) $ BL.fromStrict $ T.encodeUtf8 t
 
-      cacheMap' = maybe Map.empty (fmap T.encodeUtf8) cacheMap -- doesn't work
-      -- cacheMap' = Map.empty -- works
+      -- cacheMap' = maybe Map.empty (fmap T.encodeUtf8) cacheMap -- doesn't work
+      cacheMap' = Map.empty -- works
 
   -- eval ("console.log('"<> show t <>"')" :: String)
-  eval ("console.log('"<> show cacheMap' <>"')" :: String)
+  -- eval ("console.log('"<> show cacheMap' <>"')" :: String)
 
 
 
   let
     bodyWidget' = do
-      _ <- runSourceT (reflexXhrHandler def (constant cacheMap')) graphqlCodec $ runViewT browserLocHandler appW
+      _ <- runSourceT (reflexXhrHandler (def & xhrRequestConfig_withCredentials .~ True) (constant cacheMap')) graphqlCodec $ runViewT browserLocHandler appW
       blank
 
     -- w :: (FrontendWidget () -> TriggerEventT DomTimeline (DomCoreWidget ()) x)
@@ -289,7 +376,7 @@ graphqlApp request respond = do
   let sessionHandle = Session.extractSession request
   bs <- lazyRequestBody request
   resp <- runRIO (Ctx sessionHandle) $ interpreter rootResolver bs
-  respond $ responseLBS ok200 [(hContentType, "application/json")] resp
+  respond $ responseLBS ok200 [ (hContentType, "application/json") ] resp
 
 newtype UserId = UserId Int32
   deriving (Serialize)
@@ -330,6 +417,9 @@ articlesResolver = error "not implemented"
 deityResolver :: QueryDeityArgs -> ResolverQ () (RIO Ctx) Deity
 deityResolver QueryDeityArgs {..} = do
   mAuth <- lift $ Session.authStatus
+  lift $ case mAuth of
+    Nothing -> Session.authenticate $ UserId 1
+    Just _  -> Session.logout
   pure Deity
     { deityName = pure $ if isJust mAuth then "Authenticated Morpheus" else "Guest Morpheus"
     , deityPower = pure (Just "Shapeshifting")
