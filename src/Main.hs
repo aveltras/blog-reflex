@@ -65,7 +65,8 @@ import           Data.Morpheus.Types                    (GQLRootResolver (..),
                                                          MUTATION, QUERY,
                                                          Resolver, ResolverM,
                                                          ResolverQ,
-                                                         Undefined (..))
+                                                         Undefined (..),
+                                                         liftEither)
 
 
 import           Source
@@ -87,6 +88,8 @@ import           Network.HTTP.Client                    (Cookie (..),
                                                          createCookieJar,
                                                          parseRequest)
 import qualified Network.HTTP.Req                       as Req
+import           Reflex.DynamicWriter.Base
+import           Reflex.DynamicWriter.Class
 import           Sessionula.Backend.File
 import           Web.Cookie
 
@@ -174,10 +177,12 @@ app request respond = do
 
   let commentedPlaceholder = "<!--" <> placeholder <> "-->"
 
-  (state, html) <- renderStatic' . runHydratableT . runSourceT (reqXhrHandler clientOptions' cacheRef) graphqlCodec . runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) $
-    el "html" $ do
-      el "head" $ void headWidget >> (comment $ T.decodeUtf8 placeholder)
-      el "body" bodyWidget
+  (state, html) <- renderStatic' . runHydratableT . runSourceT (reqXhrHandler clientOptions' cacheRef) graphqlCodec $
+
+    el "html" $ mdo
+      el "head" $ void (headWidget headData) >> (comment $ T.decodeUtf8 placeholder)
+      (viewD, headData) <- runDynamicWriterT $ runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) $ el "body" bodyWidget
+      pure viewD
 
   let status = case state of
         Right _ -> ok200
@@ -232,12 +237,13 @@ app request respond = do
 --   , cookie_http_only :: Bool
 --   }
 
-headWidget :: (DomBuilder t m) => m ()
-headWidget = do
+headWidget :: (DomBuilder t m, PostBuild t m, Prerender js t m) => Dynamic t Text -> m ()
+headWidget headD = do
   elAttr "script" ("src" =: "http://jsaddle.blog.local:3000/jsaddle.js") blank
   elAttr "link" ("rel" =: "stylesheet" <> "href" =: ("http://static.blog.local:3000/" <> main_css)) blank
+  prerender_ (el "title" $ dynText headD) (el "title" $ dynText headD)
 
-bodyWidget :: (MonadIO (Performable m), Prerender js t m, PostBuild t m, HasSource t IsGraphQLQuery m, TriggerEvent t m, PerformEvent t m, MonadHold t m, DomBuilder t m, HasView t View ViewError m) => m ()
+bodyWidget :: (DynamicWriter t Text m, MonadIO (Performable m), Prerender js t m, PostBuild t m, HasSource t IsGraphQLQuery m, TriggerEvent t m, PerformEvent t m, MonadHold t m, DomBuilder t m, HasView t View ViewError m) => m ()
 bodyWidget = appW
 
 data View = HomeV
@@ -254,16 +260,18 @@ instance PathPiece View where
     ContactV -> "contact"
 
 -- appW :: (DomBuilder t m, MonadHold t m, HasSource t js m, HasView t View ViewError m, PerformEvent t m, Prerender js t m, PostBuild t m) => m ()
-appW :: (MonadIO (Performable m), DomBuilder t m, TriggerEvent t m, HasSource t IsGraphQLQuery m, MonadHold t m, HasView t View ViewError m, PerformEvent t m, Prerender js t m, PostBuild t m) => m ()
+appW :: (DynamicWriter t Text m, MonadIO (Performable m), DomBuilder t m, TriggerEvent t m, HasSource t IsGraphQLQuery m, MonadHold t m, HasView t View ViewError m, PerformEvent t m, Prerender js t m, PostBuild t m) => m ()
 appW = do
   viewD <- askView
   void $ dyn $ (\case
                    Right v -> case v of
                      HomeV    -> do
+                       tellDyn $ constDyn "home"
                        text "home"
                        linkTo ContactV $ text "go contact"
                        graphQLwidget
                      ContactV -> do
+                       tellDyn $ constDyn "contact"
                        -- text "contact"
                        linkTo HomeV $ text "go home"
                    Left e -> case e of
@@ -297,18 +305,29 @@ mainJS = do
 
 
 
-  let
-    bodyWidget' = do
-      _ <- runSourceT (reflexXhrHandler (def & xhrRequestConfig_withCredentials .~ True) (constant cacheMap')) graphqlCodec $ runViewT browserLocHandler appW
-      blank
+  -- let
+  --   bodyWidget' = do
+  --     _ <- runSourceT (reflexXhrHandler (def & xhrRequestConfig_withCredentials .~ True) (constant cacheMap')) graphqlCodec $ runDynamicWriterT $ runViewT browserLocHandler bodyWidget
+  --     blank
 
     -- w :: (FrontendWidget () -> TriggerEventT DomTimeline (DomCoreWidget ()) x)
       -- -> (FrontendWidget () -> TriggerEventT DomTimeline (DomCoreWidget ()) x)
       -- -> TriggerEventT DomTimeline (DomCoreWidget ()) x
-    w appendHead appendBody = appendHead headWidget >> appendBody bodyWidget'
+    -- w appendHead appendBody = appendHead (headWidget (constDyn "contact")) >> appendBody bodyWidget'
+
+    -- (state, html) <- renderStatic' . runHydratableT . runSourceT (reqXhrHandler clientOptions' cacheRef) graphqlCodec $
+
+    -- el "html" $ mdo
+    --   el "head" $ void (headWidget headData) >> (comment $ T.decodeUtf8 placeholder)
+    --   (viewD, headData) <- runDynamicWriterT $ runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) $ el "body" bodyWidget
+    --   pure viewD
 
 
-  runHydrationWidgetWithHeadAndBody (pure ()) w
+  runHydrationWidgetWithHeadAndBody (pure ()) $ \appendHead appendBody -> mdo
+    void $ appendHead (headWidget headData)
+    headData <- fmap snd $ appendBody $ runSourceT (reflexXhrHandler (def & xhrRequestConfig_withCredentials .~ True) (constant cacheMap')) graphqlCodec $ runDynamicWriterT $ runViewT browserLocHandler $ el "body" bodyWidget
+    blank
+    -- w
     -- $ do
   -- Main.mainWidget $ do
     -- buildE <- getPostBuild
@@ -422,7 +441,7 @@ deityResolver QueryDeityArgs {..} = do
     Just _  -> Session.logout
   pure Deity
     { deityName = pure $ if isJust mAuth then "Authenticated Morpheus" else "Guest Morpheus"
-    , deityPower = pure (Just "Shapeshifting")
+    , deityPower = liftEither $ pure $ Left "fail example" -- pure (Just "Shapeshifting")
     }
 
 loginResolver :: MutationLoginArgs -> Resolver MUTATION () (RIO Ctx) (Maybe (User (Resolver MUTATION () (RIO Ctx))))

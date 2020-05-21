@@ -81,6 +81,7 @@ newtype ViewT t view err m a
     , MonadSample t
     -- , HasSource t js
     , TriggerEvent t
+    , DynamicWriter t w
     , DomBuilder t
     , NotReady t
     , PostBuild t

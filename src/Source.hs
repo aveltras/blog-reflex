@@ -27,27 +27,36 @@
 module Source where
 
 import           Control.Lens
-import           Control.Monad.Fix      (MonadFix)
-import           Control.Monad.IO.Class (MonadIO, liftIO)
+import           Control.Monad.Fix           (MonadFix)
+import           Control.Monad.IO.Class      (MonadIO, liftIO)
 import           Data.Aeson
-import qualified Data.ByteString        as BS
-import qualified Data.ByteString.Lazy   as BL
-import           Data.Coerce            (coerce)
+import qualified Data.ByteString             as BS
+import qualified Data.ByteString.Lazy        as BL
+import           Data.Coerce                 (coerce)
 import           Data.Hashable
 import           Data.IORef
-import           Data.Map               (Map)
-import qualified Data.Map               as Map
+import           Data.Map                    (Map)
+import qualified Data.Map                    as Map
 import           Data.Morpheus.Client
+import           Data.Morpheus.Error
 import           Data.Morpheus.Types.IO
-import           Data.Proxy             (Proxy (..))
-import qualified Data.Text.Encoding     as T
-import           GHCJS.DOM.Types        (MonadJSM)
-import           Network.HTTP.Client    (CookieJar)
+import           Data.Proxy                  (Proxy (..))
+import qualified Data.Text.Encoding          as T
+import           GHCJS.DOM.Types             (MonadJSM)
+import           Network.HTTP.Client         (CookieJar)
 import           Network.HTTP.Req
-import           Reflex.Dom.Core        hiding (Query, Value)
+import           Reflex.BehaviorWriter.Class
+import           Reflex.Dom.Core             hiding (Query, Value)
 
 
-type HasSource t request m = (Requester t (Client m), Requester t m, Request (Client m) ~ request, Request m ~ request, Response (Client m) ~ Either String, Response m ~ Either String)
+type HasSource t request m =
+  ( Requester t (Client m)
+  , Requester t m
+  , Request (Client m) ~ request
+  , Request m ~ request
+  , Response (Client m) ~ Either String
+  , Response m ~ Either String
+  )
 
 newtype SourceT t request response m a
   = SourceT { unSourceT :: RequesterT t request response m a }
@@ -105,6 +114,7 @@ graphqlCodec (IsGraphQLQuery args) = (toWire, fromWire)
     toWire = BL.toStrict $ encode $ buildReq (Proxy :: Proxy request) args
     fromWire wire = eitherDecodeStrict wire >>= \case
       JSONResponse { responseData = Just x } -> Right x
+      JSONResponse { responseErrors = Just errors } -> Left $ renderGQLErrors errors
       invalidResponse -> Left $ show invalidResponse
 
 reflexXhrHandler :: (XhrConstraints t m) => XhrRequestConfig () -> Behavior t (Map Int WireFormat) -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
