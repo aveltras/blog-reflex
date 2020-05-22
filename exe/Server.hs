@@ -1,3 +1,6 @@
 module Server where
 
-import           Main
+import           App.Server
+
+main :: IO ()
+main = run

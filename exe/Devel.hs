@@ -1,4 +1,6 @@
 module Devel where
 
-import           App.Database
-import           Main
+import           App.Server
+
+main :: IO ()
+main = run

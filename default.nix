@@ -65,7 +65,7 @@ in
     inherit yarn;
 
     watchExe = (writeShellScriptBin "watchExe" '' 
-      ${ghcid}/bin/ghcid -c "cabal v2-repl exe:$1" -W -T Main.main ''${@:2}
+      ${ghcid}/bin/ghcid -c "cabal v2-repl exe:$1" -W -T :main ''${@:2}
     '');
     
     watchLib = (writeShellScriptBin "watchLib" ''

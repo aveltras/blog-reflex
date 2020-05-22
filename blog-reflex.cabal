@@ -8,38 +8,38 @@ common shared
   default-language: Haskell2010
 
   ghc-options:
-    -Wall
-    -Wcompat
-    -Wincomplete-record-updates
-    -Wincomplete-uni-patterns
-    -Wredundant-constraints
+      -Wall
+      -Wcompat
+      -Wincomplete-record-updates
+      -Wincomplete-uni-patterns
+      -Wredundant-constraints
     
   default-extensions:
-    ConstraintKinds
-    DataKinds
-    DefaultSignatures
-    DeriveGeneric
-    DerivingStrategies
-    ExistentialQuantification
-    FlexibleContexts
-    FlexibleInstances
-    FunctionalDependencies
-    GeneralizedNewtypeDeriving
-    KindSignatures
-    LambdaCase
-    MultiParamTypeClasses
-    OverloadedLabels
-    OverloadedStrings
-    QuasiQuotes
-    RankNTypes
-    RecordWildCards
-    RecursiveDo
-    ScopedTypeVariables
-    TemplateHaskell
-    TypeApplications
-    TypeFamilies
-    TypeOperators
-    UndecidableInstances
+      ConstraintKinds
+      DataKinds
+      DefaultSignatures
+      DeriveGeneric
+      DerivingStrategies
+      ExistentialQuantification
+      FlexibleContexts
+      FlexibleInstances
+      FunctionalDependencies
+      GeneralizedNewtypeDeriving
+      KindSignatures
+      LambdaCase
+      MultiParamTypeClasses
+      OverloadedLabels
+      OverloadedStrings
+      QuasiQuotes
+      RankNTypes
+      RecordWildCards
+      RecursiveDo
+      ScopedTypeVariables
+      TemplateHaskell
+      TypeApplications
+      TypeFamilies
+      TypeOperators
+      UndecidableInstances
 
   build-depends:
       aeson

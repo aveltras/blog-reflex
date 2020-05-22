@@ -1,3 +1,7 @@
 module Client where
 
-import           Main
+import           App.Frontend
+import           Language.Javascript.JSaddle (JSM)
+
+main :: JSM ()
+main = mainJS
