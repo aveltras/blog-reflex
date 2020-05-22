@@ -1,31 +1,27 @@
 module App.Server where
 
 import           Data.Aeson
-import qualified Data.ByteString                        as BS
-import qualified Data.ByteString.Lazy                   as BL
-import qualified Data.ByteString.Lazy.Char8             as C8
-import qualified Data.CaseInsensitive                   as CI
-import qualified Data.Map                               as Map
-import           Data.Morpheus                          (interpreter)
-import qualified Data.Text                              as T
-import qualified Data.Text.Encoding                     as T
-import           Language.Javascript.JSaddle            (syncPoint)
-import qualified Language.Javascript.JSaddle.WebSockets as JW
-import qualified Network.HTTP.Req                       as Req
+import qualified Data.ByteString              as BS
+import qualified Data.ByteString.Char8        as C8S
+import qualified Data.ByteString.Lazy         as BL
+import qualified Data.CaseInsensitive         as CI
+import qualified Data.Map                     as Map
+import           Data.Morpheus                (interpreter)
+import qualified Data.Text.Encoding           as T
+import qualified Network.HTTP.Req             as Req
 import           Network.HTTP.Types
 import           Network.Wai
-import qualified Network.Wai.Handler.Warp               as Warp
+import qualified Network.Wai.Handler.Warp     as Warp
 import           Network.Wai.Middleware.Cors
-import           Network.Wai.Middleware.Gzip            (gzip)
-import           Network.Wai.Middleware.Vhost           (vhost)
-import           Network.Wai.Static.TH                  (mkStaticApp)
-import           Network.WebSockets                     (defaultConnectionOptions)
+import           Network.Wai.Middleware.Gzip  (gzip)
+import           Network.Wai.Middleware.Vhost (vhost)
+import           Network.Wai.Static.TH        (mkStaticApp)
 import           Reflex.Dom.Core
 import           RIO
-import qualified Sessionula                             as Session (defaultConfig,
-                                                                    setup)
+import qualified Sessionula                   as Session (defaultConfig, setup)
 import           Sessionula.Backend.File
-import qualified Sessionula.Frontend.Wai                as Session
+import qualified Sessionula.Frontend.Wai      as Session
+import           System.Environment
 
 import           App.Frontend
 import           App.Web.GraphQL
@@ -44,6 +40,7 @@ graphqlApp request respond = do
   resp <- runRIO (Ctx sessionHandle) $ interpreter rootResolver bs
   respond $ responseLBS ok200 [ (hContentType, "application/json") ] resp
 
+placeholder :: ByteString
 placeholder = "%%%"
 
 app :: Application
@@ -72,34 +69,42 @@ app request respond = do
   respond $ responseLBS status [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict prerenderedHtml
 
 
-run :: IO ()
-run = do
-  let port = 3000
+run :: (String -> Int -> IO [(Maybe String, Application)]) -> IO ()
+run args = do
 
-  manager <- Session.setup Session.defaultConfig =<< fileStorage "/tmp/sessions"
+  domain <- getEnv "APP_DOMAIN"
+  port :: Int <- read <$> getEnv "APP_PORT"
+  sessionsDir <- getEnv "APP_SESSIONS_DIR"
+
+  manager <- Session.setup Session.defaultConfig =<< fileStorage sessionsDir
+
+  let
+
+    applyCors = cors $ const (Just $ simpleCorsResourcePolicy { corsRequestHeaders = [ "content-type" ]
+                                                              , corsOrigins = Just ([C8S.pack $ "http://" <> domain <> ":" <> show port], True)
+                                                              } )
+
+    sessionMiddleware = Session.middleware manager
+                        Session.defaultSessionCookie { Session.setCookieSecure = False
+                                                     , Session.setCookieDomain = Just (C8S.pack $ "." <> domain)
+                                                     , Session.setCookieSameSite = Nothing }
+                        Session.defaultCsrfSettings { Session.csrfExcludedMethods = [methodGet, methodPost] }
 
 
-  jsApp <- JW.jsaddleOr defaultConnectionOptions (mainJS >> syncPoint) $ JW.jsaddleAppWithJs $ JW.jsaddleJs' (Just $ "http://jsaddle.blog.local:" <> (C8.pack . show) port) False
-  Warp.run port $ vhost
-    [ ((==) (Just . T.encodeUtf8 . T.pack . (<>) "static.blog.local:" $ show port) . requestHeaderHost, gzip def $ staticApp True)
-    , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "jsaddle.blog.local:" $ show port) . requestHeaderHost, cors (const (Just $ simpleCorsResourcePolicy { corsRequestHeaders = [ "content-type" ] } )) $ jsApp)
-    , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "graphql.blog.local:" $ show port) . requestHeaderHost, laxCors $ sessionMiddleware manager $ graphqlApp)
-    , ((==) (Just . T.encodeUtf8 . T.pack . (<>) "blog.local:" $ show port) . requestHeaderHost, laxCors app)
-    ] $ const $ flip ($) (responseLBS status503 [] "Service unavailable")
+  otherApps <- (fmap . fmap) applyCors <$> args domain port
 
-    where
-      laxCors = cors $ const (Just $ simpleCorsResourcePolicy { corsRequestHeaders = [ "content-type" ]
-                                                              , corsOrigins = Just (["http://blog.local:3000"], True)
-                                                             } )
+  let
 
-      sessionMiddleware man =
-        Session.middleware
-        man
-        Session.defaultSessionCookie { Session.setCookieSecure = False
-                                     , Session.setCookieDomain = Just ".blog.local"
-                                     , Session.setCookieSameSite = Nothing }
-        Session.defaultCsrfSettings { Session.csrfExcludedMethods = [methodGet, methodPost] }
+    vhosts = otherApps <> [ (Just "static", gzip def $ staticApp True)
+                          , (Just "graphql", applyCors $ sessionMiddleware graphqlApp)
+                          , (Nothing, applyCors app)
+                          ]
 
+    vhostApp = vhosts <&> \(mSubdomain, waiApp) ->
+      let domainToMatch = C8S.pack $ maybe domain (flip (<>) ("." <> domain)) mSubdomain <> ":" <> show port
+      in ((==) (Just domainToMatch) . requestHeaderHost, waiApp)
+
+  Warp.run port $ vhost vhostApp $ const $ flip ($) (responseLBS status503 [] "Service unavailable")
 
 
 
