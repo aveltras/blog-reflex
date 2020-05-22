@@ -1,7 +1,5 @@
 module App.Server where
 
-import           Data.Aeson
-import qualified Data.ByteString              as BS
 import qualified Data.ByteString.Char8        as C8S
 import qualified Data.ByteString.Lazy         as BL
 import qualified Data.CaseInsensitive         as CI
@@ -41,9 +39,6 @@ graphqlApp request respond = do
   resp <- runRIO (Ctx sessionHandle) $ interpreter rootResolver bs
   respond $ responseLBS ok200 [ (hContentType, "application/json") ] resp
 
-placeholder :: ByteString
-placeholder = "%%%"
-
 app :: Application
 app request respond = do
 
@@ -51,23 +46,23 @@ app request respond = do
       clientOptions = flip foldMap headers $ \(n, v) -> Req.header (CI.original n) v
       clientOptions' = Req.port 3000 <> clientOptions
 
-  let commentedPlaceholder = "<!--" <> placeholder <> "-->"
+      frontendConfig = Config ("http://static.blog.local:3000/" <> main_css) "http://jsaddle.blog.local:3000/jsaddle.js"
 
-  ((state, cache), html) <- renderStatic' . runHydratableT $
+  (state, html) <- renderStatic' . runHydratableT $
 
     el "html" $ mdo
-      el "head" $ void (headWidget headD) >> (comment $ T.decodeUtf8 placeholder)
-      ((viewD, headD), cacheB) <- runSourceT Map.empty (reqXhrHandler clientOptions') graphqlCodec $ runDynamicWriterT $ runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) $ el "body" bodyWidget
-      pure (viewD, cacheB)
+      el "head" $ do
+        void $ headWidget frontendConfig headD
+        injectIntoDOM $ constDyn frontendConfig
+        injectIntoDOM $ (fmap . fmap) T.decodeUtf8 cacheD
+      ((viewD, headD), cacheD) <- runSourceT Map.empty (reqXhrHandler clientOptions') graphqlCodec $ runDynamicWriterT $ runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) $ el "body" bodyWidget
+      pure viewD
 
   let status = case state of
         Right _ -> ok200
         Left _  -> status404
 
-  let (a, b) = BS.breakSubstring commentedPlaceholder html
-      prerenderedHtml = a <> "<script data-prerenderblob>//" <> (BL.toStrict . encode $ T.decodeUtf8 <$> cache) <> "</script>" <> BS.drop (BS.length commentedPlaceholder) b
-
-  respond $ responseLBS status [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict prerenderedHtml
+  respond $ responseLBS status [(hContentType, "text/html")] $ "<!doctype html>" <> BL.fromStrict html
 
 
 run :: (String -> Int -> IO [(Maybe String, Application)]) -> IO ()

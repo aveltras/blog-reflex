@@ -72,13 +72,13 @@ runSourceT :: forall t request response wireFormat m a.
   -> (Event t (Map Int wireFormat) -> m (Event t (Map Int wireFormat)))
   -> (forall b. request b -> (wireFormat, wireFormat -> response b))
   -> SourceT t request response m a
-  -> m (a, Behavior t (Map Int wireFormat))
+  -> m (a, Dynamic t (Map Int wireFormat))
 runSourceT cacheMap requestHandler codec (SourceT widget) = mdo
 
-  cacheB :: Behavior t (Map Int wireFormat) <- accumB (\a b -> a <> (Map.fromList . fmap (\(_,v) -> (hash v, v)) . Map.toList $ b)) cacheMap $ wireResponsesE
+  cacheD :: Dynamic t (Map Int wireFormat) <- accumDyn (\a b -> a <> (Map.fromList . fmap (\(_,v) -> (hash v, v)) . Map.toList $ b)) cacheMap $ wireResponsesE
   -- hash request and not response !
 
-  let partitionedRequestsE = partitionRequests <$> (attach cacheB wireRequestsE)
+  let partitionedRequestsE = partitionRequests <$> (attachPromptlyDyn cacheD wireRequestsE)
       wireRequestsNotCachedE = ffor (partitionedRequestsE) snd
 
   cachedResponsesE <- delay 0.000001 $ ffor partitionedRequestsE fst
@@ -87,7 +87,7 @@ runSourceT cacheMap requestHandler codec (SourceT widget) = mdo
   (result, requestE) <- runRequesterT widget responseE
   (wireRequestsE, responseE) <- matchResponsesWithRequests codec requestE $ fmapMaybe id (safeHead . Map.toList <$> (wireResponsesE <> cachedResponsesE))
 
-  pure (result, cacheB)
+  pure (result, cacheD)
 
     where
       partitionRequests :: (Map Int wireFormat, Map Int wireFormat) -> (Map Int wireFormat, Map Int wireFormat)
