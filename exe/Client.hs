@@ -1,4 +1,4 @@
-module Client where
+module Main where
 
 import           App.Frontend
 import           Language.Javascript.JSaddle (JSM)

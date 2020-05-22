@@ -58,20 +58,21 @@ in
     morpheus-graphql-client = self.callCabal2nix "morpheus-graphql-client" "${morpheusSrcLocal}/morpheus-graphql-client" {};
   };
   
-  shellToolOverrides = self: super: with pkgs; with haskell.lib; {
-    ghcide = (import "${obeliskSrc}/haskell-overlays/ghcide.nix" self super).ghcide;
-    haskell-ide-engine = null;
-    stylish-haskell = justStaticExecutables self.stylish-haskell;
-    inherit yarn;
+  shellToolOverrides = self: super: with pkgs; with haskell.lib;
+    if self.ghc.isGhcjs or false then {}
+    else {
+      ghcide = (import "${obeliskSrc}/haskell-overlays/ghcide.nix" self super).ghcide;
+      haskell-ide-engine = null;
+      stylish-haskell = justStaticExecutables self.stylish-haskell;
+      inherit yarn;
 
-    watchExe = (writeShellScriptBin "watchExe" '' 
-      ${ghcid}/bin/ghcid -c "cabal v2-repl exe:$1" -W -T :main ''${@:2}
-    '');
+      watchExe = (writeShellScriptBin "watchExe" '' 
+        ${ghcid}/bin/ghcid -c "cabal v2-repl exe:$1" -W -T :main ''${@:2}
+      '');                 
     
-    watchLib = (writeShellScriptBin "watchLib" ''
-      ${ghcid}/bin/ghcid -c "cabal v2-repl $1" -W ''${@:2}
-    '');
-    
-  };
+      watchLib = (writeShellScriptBin "watchLib" ''
+        ${ghcid}/bin/ghcid -c "cabal v2-repl $1" -W ''${@:2}
+      '');
+    };
   
 })

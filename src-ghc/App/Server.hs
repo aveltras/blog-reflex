@@ -8,6 +8,7 @@ import qualified Data.CaseInsensitive         as CI
 import qualified Data.Map                     as Map
 import           Data.Morpheus                (interpreter)
 import qualified Data.Text.Encoding           as T
+import           Network.HTTP.Req
 import qualified Network.HTTP.Req             as Req
 import           Network.HTTP.Types
 import           Network.Wai
@@ -70,7 +71,7 @@ app request respond = do
 
 
 run :: (String -> Int -> IO [(Maybe String, Application)]) -> IO ()
-run args = do
+run buildApps = do
 
   domain <- getEnv "APP_DOMAIN"
   port :: Int <- read <$> getEnv "APP_PORT"
@@ -91,7 +92,7 @@ run args = do
                         Session.defaultCsrfSettings { Session.csrfExcludedMethods = [methodGet, methodPost] }
 
 
-  otherApps <- (fmap . fmap) applyCors <$> args domain port
+  otherApps <- (fmap . fmap) applyCors <$> buildApps domain port
 
   let
 
@@ -106,7 +107,12 @@ run args = do
 
   Warp.run port $ vhost vhostApp $ const $ flip ($) (responseLBS status503 [] "Service unavailable")
 
-
-
-
-
+reqXhrHandler :: (PerformEvent t m, MonadIO (Performable m)) => Option 'Http -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
+reqXhrHandler opts = performEvent . fmap toXhrRequest
+  where
+    toXhrRequest = traverse $ \wire -> runReq defaultHttpConfig $ do
+      responseBody <$> req Req.POST -- method
+                           (http "graphql.blog.local") -- safe by construction URL
+                           (ReqBodyBs wire) -- use built-in options or add your own
+                           bsResponse -- specify how to interpret response
+                           opts -- query params, headers, explicit port number, etc.

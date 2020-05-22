@@ -1,4 +1,4 @@
-module Devel where
+module Main where
 
 import qualified Data.ByteString.Lazy.Char8             as C8L
 import           Language.Javascript.JSaddle            (syncPoint)

@@ -78,13 +78,14 @@ bodyWidget = do
 graphQLwidget :: (MonadIO (Performable m), Prerender js t m, HasSource t IsGraphQLQuery m, TriggerEvent t m, PostBuild t m, MonadHold t m, PerformEvent t m, DomBuilder t m) => m ()
 graphQLwidget = do
 
-  buildE <- getPostBuild
-  responseE :: Event t (Either String GetDeity) <- requesting $ (IsGraphQLQuery (GetDeityArgs "tac")) <$ buildE
-  widgetD <- holdDyn "initial" $ ffor responseE $ \r -> case r of
-    Left s  -> T.pack $ "Error ---->" <> s
-    Right g -> T.pack $ "Success ---> " <> show g
+  text "nothing"
+  -- buildE <- getPostBuild
+  -- responseE :: Event t (Either String GetDeity) <- requesting $ (IsGraphQLQuery (GetDeityArgs "tac")) <$ buildE
+  -- widgetD <- holdDyn "initial" $ ffor responseE $ \r -> case r of
+    -- Left s  -> T.pack $ "Error ---->" <> s
+    -- Right g -> T.pack $ "Success ---> " <> show g
 
-  prerender_ (el "div" $ dynText widgetD) (el "div" $ dynText widgetD)
+  -- prerender_ (el "div" $ dynText widgetD) (el "div" $ dynText widgetD)
 
   blank
 

@@ -1,3 +1,5 @@
+{-# LANGUAGE CPP #-}
+
 module Lib.Source where
 
 import           Control.Lens
@@ -16,7 +18,6 @@ import           Data.Morpheus.Types.IO
 import           Data.Proxy             (Proxy (..))
 import qualified Data.Text.Encoding     as T
 import           GHCJS.DOM.Types        (MonadJSM)
-import           Network.HTTP.Req
 import           Reflex.Dom.Core        hiding (Query, Value)
 
 
@@ -39,7 +40,9 @@ newtype SourceT t request response m a
     , NotReady t
     , MonadFix
     , MonadIO
+#ifndef ghcjs_HOST_OS
     , MonadJSM
+#endif
     , MonadHold t
     , Requester t
     , MonadSample t
@@ -137,47 +140,3 @@ type XhrConstraints t m =
   , MonadIO m
   , MonadJSM m
   )
-
-reqXhrHandler :: (PerformEvent t m, MonadIO (Performable m)) => Option 'Http -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
-reqXhrHandler opts = performEvent . fmap toXhrRequest
-  where
-    toXhrRequest = traverse $ \wire -> runReq defaultHttpConfig $ do
-      responseBody <$> req POST -- method
-                           (http "graphql.blog.local") -- safe by construction URL
-                           (ReqBodyBs wire) -- use built-in options or add your own
-                           bsResponse -- specify how to interpret response
-                           opts -- query params, headers, explicit port number, etc.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
