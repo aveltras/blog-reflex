@@ -1,10 +1,17 @@
+{-# LANGUAGE GADTs     #-}
+{-# LANGUAGE PolyKinds #-}
+
 module App.Server where
 
+import           Data.Aeson
 import qualified Data.ByteString.Char8        as C8S
 import qualified Data.ByteString.Lazy         as BL
 import qualified Data.CaseInsensitive         as CI
+import           Data.Constraint.Extras
+import           Data.Constraint.Forall       (ForallF)
 import qualified Data.Map                     as Map
 import           Data.Morpheus                (interpreter)
+import           Data.Some
 import qualified Data.Text.Encoding           as T
 import           Network.HTTP.Req
 import qualified Network.HTTP.Req             as Req
@@ -15,7 +22,7 @@ import           Network.Wai.Middleware.Cors
 import           Network.Wai.Middleware.Gzip  (gzip)
 import           Network.Wai.Middleware.Vhost (vhost)
 import           Network.Wai.Static.TH        (mkStaticApp)
-import           Reflex.Dom.Core
+import           Reflex.Dom.Core              hiding (Error)
 import           RIO
 import qualified Sessionula                   as Session (defaultConfig, setup)
 import           Sessionula.Backend.File
@@ -23,6 +30,7 @@ import qualified Sessionula.Frontend.Wai      as Session
 import           Squeal.PostgreSQL
 import           System.Environment
 
+import           App.API
 import           App.Database.Schema
 import           App.Env
 import           App.Frontend
@@ -35,10 +43,10 @@ import           Lib.View
 
 mkStaticApp "static"
 
-graphqlApp :: Application
-graphqlApp request respond = do
+graphqlApp :: Env -> Application
+graphqlApp env request respond = do
   bs <- lazyRequestBody request
-  resp <- runRIO (Ctx Env $ Session.extractSession request) $ interpreter rootResolver bs
+  resp <- runRIO (Ctx env $ Session.extractSession request) $ interpreter rootResolver bs
   respond $ responseLBS ok200 [ (hContentType, "application/json") ] resp
 
 app :: Application
@@ -57,7 +65,7 @@ app request respond = do
         void $ headWidget frontendConfig headD
         injectIntoDOM $ constDyn frontendConfig
         injectIntoDOM $ (fmap . fmap) T.decodeUtf8 cacheD
-      ((viewD, headD), cacheD) <- runSourceT Map.empty (reqXhrHandler clientOptions') graphqlCodec $ runDynamicWriterT $ runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) $ el "body" bodyWidget
+      ((viewD, headD), cacheD) <- runSourceT Map.empty (reqXhrHandler clientOptions') gadtCodec $ runDynamicWriterT $ runViewT (constLocHandler $ T.decodeUtf8 . rawPathInfo $ request) $ el "body" bodyWidget
       pure viewD
 
   let status = case state of
@@ -76,6 +84,7 @@ run buildApps = do
   dbConnStr <- C8S.pack <$> getEnv "DATABASE_URL"
 
   pool <- createConnectionPool dbConnStr 1 10 1
+  let env = Env pool
 
   -- withConnection dbConnStr $ migrateDown migrations
   withConnection dbConnStr $ migrateUp migrations
@@ -102,7 +111,8 @@ run buildApps = do
   let
 
     vhosts = otherApps <> [ (Just "static", gzip def $ staticApp True)
-                          , (Just "graphql", applyCors $ sessionMiddleware graphqlApp)
+                          -- , (Just "graphql", applyCors $ sessionMiddleware $ graphqlApp env)
+                          , (Just "graphql", applyCors $ sessionMiddleware $ apiApp)
                           , (Nothing, applyCors app)
                           ]
 
@@ -121,3 +131,48 @@ reqXhrHandler opts = performEvent . fmap toXhrRequest
                            (ReqBodyBs wire) -- use built-in options or add your own
                            bsResponse -- specify how to interpret response
                            opts -- query params, headers, explicit port number, etc.
+
+
+
+
+handler :: RequestG a -> IO (Either String a)
+handler = \case
+  RequestG1 -> pure $ pure True
+  (RequestG2 int) -> pure $ pure int
+
+apiApp :: Application
+apiApp request respond = do
+  bs <- lazyRequestBody request
+  case decode' bs of -- No instance for FromJSON (RequestG a0)
+    Nothing -> respond $ responseLBS status400 [ (hContentType, "application/json") ] ""
+    Just (Some req) -> do
+      resp <- handler req
+      respond $ responseLBS ok200 [ (hContentType, "application/json") ] $ has @ToJSON req $ encode resp
+
+
+
+
+  -- let resp = undefined
+  -- resp <- runRIO (Ctx env $ Session.extractSession request) $ interpreter rootResolver bs
+  -- respond $ responseLBS ok200 [ (hContentType, "application/json") ] resp
+
+  -- undefined
+
+-- wsApp ::
+--   ( Has ToJSON request
+--   , FromJSON (Some request)
+--   ) => (forall response. request response -> IO (DataSourceResponse response)) -> ServerApp
+-- wsApp handler pending_conn = do
+--   conn <- acceptRequest pending_conn
+--   forever $ do
+--     bsReq <- receiveData conn
+--     forkPingThread conn 30
+--     case decodeTag bsReq of
+--         Nothing -> return ()
+--         Just (int, val) ->
+--           case fromJSON val of
+--             Error _ -> return ()
+--             Success (Some request) -> do
+--               response <- handler request
+--               print $ has @ToJSON request $ encode (int, response)
+--               sendBinaryData conn $ has @ToJSON request $ encode (int, response)

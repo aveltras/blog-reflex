@@ -7,10 +7,12 @@ import           Data.Text              (Text)
 import           RIO
 import qualified Sessionula.Extra       as Session
 
+import           App.Database
+import qualified App.Database.Message   as Message
+import           App.GraphQL.Schema
 import           App.Types
 import           App.Web.Types
 
-importGQLDocumentWithNamespace "schema.graphql"
 
 rootResolver :: GQLRootResolver (RIO Ctx) () Query Mutation Undefined
 rootResolver = GQLRootResolver
@@ -56,4 +58,6 @@ logoutResolver :: Resolver MUTATION () (RIO Ctx) Bool
 logoutResolver = error "not implemented"
 
 sendMessageResolver :: MutationSendMessageArgs -> Resolver MUTATION () (RIO Ctx) Bool
-sendMessageResolver MutationSendMessageArgs {..} = pure True
+sendMessageResolver MutationSendMessageArgs {..} = do
+  -- lift $ runPool $ Message.insert mutationSendMessageArgsMessage
+  pure True

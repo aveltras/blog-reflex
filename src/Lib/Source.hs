@@ -2,13 +2,16 @@
 
 module Lib.Source where
 
-import           Control.Lens
+import           Control.Lens           hiding (has)
 import           Control.Monad.Fix      (MonadFix)
 import           Control.Monad.IO.Class (MonadIO)
 import           Data.Aeson
+import           Data.Aeson.Parser      (decodeWith, json')
 import qualified Data.ByteString        as BS
 import qualified Data.ByteString.Lazy   as BL
 import           Data.Coerce            (coerce)
+import           Data.Constraint.Extras (Has, has, whichever)
+import           Data.Constraint.Forall (ForallF)
 import           Data.Hashable
 import           Data.Map               (Map)
 import qualified Data.Map               as Map
@@ -18,7 +21,7 @@ import           Data.Morpheus.Types.IO
 import           Data.Proxy             (Proxy (..))
 import qualified Data.Text.Encoding     as T
 import           GHCJS.DOM.Types        (MonadJSM)
-import           Reflex.Dom.Core        hiding (Query, Value)
+import           Reflex.Dom.Core        hiding (Error, Query, Value)
 
 
 type HasSource t request m =
@@ -106,6 +109,18 @@ safeHead = \case
 data IsGraphQLQuery query = (FromJSON query, Fetch query, Show query) => IsGraphQLQuery { unGraphQLQuery :: Args query }
 
 type WireFormat = BS.ByteString
+
+gadtCodec :: forall request response. (ForallF ToJSON request, Has FromJSON request) => request response -> (WireFormat, WireFormat -> Either String response)
+gadtCodec request = (toWire, fromWire)
+  where
+    toWire = BL.toStrict . encode $ whichever @ToJSON @request @response toJSON request
+    fromWire wire =
+      case decodeWith json' fromJSON $ BL.fromStrict wire of
+        Nothing -> Left "error"
+        Just s -> case has @FromJSON request fromJSON s of
+          Error err         -> Left err
+          Success (Left a)  -> Left a
+          Success (Right a) -> Right a
 
 graphqlCodec :: forall request. IsGraphQLQuery request -> (WireFormat, WireFormat -> Either String request)
 graphqlCodec (IsGraphQLQuery args) = (toWire, fromWire)

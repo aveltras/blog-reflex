@@ -43,11 +43,14 @@ common shared
 
   build-depends:
       aeson
+    , aeson-gadt-th
     , base
     , boomerang
     , bytestring
     , case-insensitive
     , cereal
+    , constraints
+    , constraints-extras
     , containers
     , cookie
     , cryptonite
