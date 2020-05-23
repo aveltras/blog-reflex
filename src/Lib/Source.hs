@@ -15,7 +15,6 @@ import           Data.Constraint.Forall (ForallF)
 import           Data.Hashable
 import           Data.Map               (Map)
 import qualified Data.Map               as Map
-import           Data.Proxy             (Proxy (..))
 import qualified Data.Text.Encoding     as T
 import           GHCJS.DOM.Types        (MonadJSM)
 import           Reflex.Dom.Core        hiding (Error, Query, Value)
@@ -59,15 +58,14 @@ instance (Adjustable t m, MonadFix m, MonadHold t m) => Adjustable t (SourceT t 
   traverseDMapWithKeyWithAdjustWithMove f m e = SourceT $ traverseDMapWithKeyWithAdjustWithMove (\k v -> coerce $ f k v) m e
 
 runSourceT :: forall t request response wireFormat m a.
-  ( Reflex t
-  , MonadFix m
+  ( MonadFix m
   , MonadHold t m
   , Hashable wireFormat
-  , Show wireFormat
+  -- , Show wireFormat
   , PerformEvent t m
   , TriggerEvent t m
   , MonadIO (Performable m)
-  , PostBuild t m
+  -- , PostBuild t m
   ) => Map Int wireFormat
   -> (Event t (Map Int wireFormat) -> m (Event t (Map Int wireFormat)))
   -> (forall b. request b -> (wireFormat, wireFormat -> response b))

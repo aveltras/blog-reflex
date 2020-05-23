@@ -1,6 +1,3 @@
-{-# LANGUAGE GADTs     #-}
-{-# LANGUAGE PolyKinds #-}
-
 module App.Server where
 
 import           Data.Aeson
@@ -32,7 +29,6 @@ import           App.API
 import           App.Database.Schema
 import           App.Env
 import           App.Frontend
-import           App.Web.Types
 
 import           Lib.Iso
 import           Lib.Source
@@ -76,12 +72,12 @@ run :: (String -> Int -> IO [(Maybe String, Application)]) -> IO ()
 run buildApps = do
 
   domain <- getEnv "APP_DOMAIN"
-  port :: Int <- read <$> getEnv "APP_PORT"
+  webPort :: Int <- read <$> getEnv "APP_PORT"
   sessionsDir <- getEnv "APP_SESSIONS_DIR"
   dbConnStr <- C8S.pack <$> getEnv "DATABASE_URL"
 
   pool <- createConnectionPool dbConnStr 1 10 1
-  let env = Env pool
+  let _env = Env pool
 
   -- withConnection dbConnStr $ migrateDown migrations
   withConnection dbConnStr $ migrateUp migrations
@@ -93,7 +89,7 @@ run buildApps = do
   let
 
     applyCors = cors $ const (Just $ simpleCorsResourcePolicy { corsRequestHeaders = [ "content-type" ]
-                                                              , corsOrigins = Just ([C8S.pack $ "http://" <> domain <> ":" <> show port], True)
+                                                              , corsOrigins = Just ([C8S.pack $ "http://" <> domain <> ":" <> show webPort], True)
                                                               } )
 
     sessionMiddleware = Session.middleware manager
@@ -103,7 +99,7 @@ run buildApps = do
                         Session.defaultCsrfSettings { Session.csrfExcludedMethods = [methodGet, methodPost] }
 
 
-  otherApps <- (fmap . fmap) applyCors <$> buildApps domain port
+  otherApps <- (fmap . fmap) applyCors <$> buildApps domain webPort
 
   let
 
@@ -114,10 +110,10 @@ run buildApps = do
                           ]
 
     vhostApp = vhosts <&> \(mSubdomain, waiApp) ->
-      let domainToMatch = C8S.pack $ maybe domain (flip (<>) ("." <> domain)) mSubdomain <> ":" <> show port
+      let domainToMatch = C8S.pack $ maybe domain (flip (<>) ("." <> domain)) mSubdomain <> ":" <> show webPort
       in ((==) (Just domainToMatch) . requestHeaderHost, waiApp)
 
-  Warp.run port $ vhost vhostApp $ const $ flip ($) (responseLBS status503 [] "Service unavailable")
+  Warp.run webPort $ vhost vhostApp $ const $ flip ($) (responseLBS status503 [] "Service unavailable")
 
 reqXhrHandler :: (PerformEvent t m, MonadIO (Performable m)) => Option 'Http -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
 reqXhrHandler opts = performEvent . fmap toXhrRequest
@@ -133,13 +129,14 @@ reqXhrHandler opts = performEvent . fmap toXhrRequest
 handler :: RequestG a -> RIO () (Either String a)
 handler = \case
   RequestG1 -> pure $ pure True
-  RequestG2 int -> pure $ pure int
+  RequestG2 _int -> pure $ pure _int
+  SendMessage _msg -> pure $ pure True
 
 apiApp :: Application
 apiApp request respond = do
   bs <- lazyRequestBody request
   case decode' bs of
     Nothing -> respond $ responseLBS status400 [ (hContentType, "application/json") ] ""
-    Just (Some req) -> do
-      resp <- runRIO () $ handler req
-      respond $ responseLBS ok200 [ (hContentType, "application/json") ] $ has @ToJSON req $ encode resp
+    Just (Some appRequest) -> do
+      resp <- runRIO () $ handler appRequest
+      respond $ responseLBS ok200 [ (hContentType, "application/json") ] $ has @ToJSON appRequest $ encode resp
