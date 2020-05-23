@@ -1,3 +1,4 @@
+{-# LANGUAGE AllowAmbiguousTypes   #-}
 {-# LANGUAGE DeriveAnyClass        #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 
@@ -30,17 +31,41 @@ data Config = Config
   } deriving stock (Generic)
     deriving anyclass (FromJSON, ToJSON)
 
-data View = Homepage
-          | Contact
+data View = HomeP
+          | ContactP
+          | LoginP
+          | BlogP
+          | BlogPostP Text
+          | PageP Text
+          deriving (Show)
 
-instance PathPiece View where
-  fromPathPiece = \case
-    "" -> Just Homepage
-    "contact" -> Just Contact
+instance PathMultiPiece View where
+  fromPathMultiPiece = \case
+    [] -> Just HomeP
+    ["contact"] -> Just ContactP
+    ["login"] -> Just LoginP
+    ["blog"] -> Just BlogP
+    ["blog", slug] -> Just $ BlogPostP slug
+    [slug] -> Just $ PageP slug
     _ -> Nothing
-  toPathPiece = \case
-    Homepage -> ""
-    Contact -> "contact"
+  toPathMultiPiece = \case
+    HomeP -> []
+    ContactP -> ["contact"]
+    LoginP -> ["login"]
+    BlogP -> ["blog"]
+    BlogPostP slug -> ["blog", slug]
+    PageP slug -> [slug]
+
+type AppWidget t js m =
+  ( MonadFix m
+  , DynamicWriter t Text m
+  , DomBuilder t m
+  , HasSource t RequestG m
+  , MonadHold t m
+  , HasView t View ViewError m
+  , Prerender js t m
+  , PostBuild t m
+  )
 
 
 headWidget :: (DomBuilder t m, PostBuild t m, Prerender js t m) => Config -> Dynamic t Text -> m ()
@@ -54,55 +79,74 @@ bodyWidget = do
   viewD <- askView
   void $ dyn $ viewD <&> \case
     Right v -> case v of
-      Homepage    -> do
-        buildE <- getPostBuild
-        tellDyn $ constDyn "home"
-        text "home"
-        linkTo Contact $ text "go contact"
-        clickE <- button "click"
-        responseE <- requesting $ RequestG1 <$ leftmost [clickE, buildE]
-        dataD <- holdDyn (Left "no response") responseE
-        prerender_ (el "div" $ display dataD) (el "div" $ display dataD)
-
-        -- display dataD
-        blank
-        -- graphQLwidget
-      Contact -> mdo
-        text "contact"
-        tellDyn $ constDyn "contact"
-        linkTo Homepage $ text "go home"
-
-        nameI <- inputElement $ (def :: InputElementConfig EventResult t (DomBuilderSpace m)) & inputElementConfig_elementConfig .~ (def & elementConfig_initialAttributes .~ ("tacotac" =: "test"))
-        emailI <- el "div" $ inputElement def <* dyn nameErrD
-        phoneI <- inputElement def
-        messageI <- textAreaElement def
-
-        sendE <- buttonClass "tac" "Send"
-
-        let formD = MessageForm
-              <$> _inputElement_value nameI
-              <*> _inputElement_value emailI
-              <*> _inputElement_value phoneI
-              <*> _textAreaElement_value messageI
-
-            messageD = validateMessageForm <$> formD
-
-            nameErrD = messageD <&> \case
-              Success _ -> text "success"
-              Failure err -> text $ foldMap (T.pack . show) err
-
-        responseE <- requesting $ SendMessage <$> (fmapMaybe id $ successToMaybe <$> tagPromptlyDyn messageD sendE)
-        responseD <- holdDyn (Left "no response yet") responseE
-
-        display responseD
-        -- display messageD
-
-        blank
+      HomeP          -> homepage
+      ContactP       -> contact
+      LoginP         -> login
+      BlogP          -> blog
+      BlogPostP slug -> blogPost slug
+      PageP slug     -> page slug
 
     Left e -> case e of
       ViewError -> do
-        linkTo Homepage $ text "go home"
-        linkTo Contact $ text "go contact"
+        linkTo HomeP $ text "go home"
+        linkTo ContactP $ text "go contact"
+
+homepage :: AppWidget t js m => m ()
+homepage = do
+  el "h1" $ text "Homepage"
+  buildE <- getPostBuild
+  tellDyn $ constDyn "home"
+  text "home"
+  linkTo ContactP $ text "go contact"
+  clickE <- button "click"
+  responseE <- requesting $ RequestG1 <$ leftmost [clickE, buildE]
+  dataD <- holdDyn (Left "no response") responseE
+  prerender_ (el "div" $ display dataD) (el "div" $ display dataD)
+
+contact :: forall t js m. AppWidget t js m => m ()
+contact = mdo
+  el "h1" $ text "Contact"
+  tellDyn $ constDyn "contact"
+  linkTo HomeP $ text "go home"
+
+  nameI <- inputElement $ (def :: InputElementConfig EventResult t (DomBuilderSpace m)) & inputElementConfig_elementConfig .~ (def & elementConfig_initialAttributes .~ ("tacotac" =: "test"))
+  emailI <- el "div" $ inputElement def <* dyn nameErrD
+  phoneI <- inputElement def
+  messageI <- textAreaElement def
+
+  sendE <- buttonClass "tac" "Send"
+
+  let formD = MessageForm
+        <$> _inputElement_value nameI
+        <*> _inputElement_value emailI
+        <*> _inputElement_value phoneI
+        <*> _textAreaElement_value messageI
+
+      messageD = validateMessageForm <$> formD
+
+      nameErrD = messageD <&> \case
+        Success _ -> text "success"
+        Failure err -> text $ foldMap (T.pack . show) err
+
+  responseE <- requesting $ SendMessage <$> (fmapMaybe id $ successToMaybe <$> tagPromptlyDyn messageD sendE)
+  responseD <- holdDyn (Left "no response yet") responseE
+
+  display responseD
+
+login :: AppWidget t js m => m ()
+login = el "h1" $ text "Login"
+
+blog :: AppWidget t js m => m ()
+blog = el "h1" $ text "Blog"
+
+blogPost :: AppWidget t js m => Text -> m ()
+blogPost slug = el "h1" $ text $ "Blog Post " <> slug
+
+page :: AppWidget t js m => Text -> m ()
+page slug = el "h1" $ text $ "Page " <> slug
+
+
+
 
 buttonClass :: DomBuilder t m => Text -> Text -> m (Event t ())
 buttonClass c s = do

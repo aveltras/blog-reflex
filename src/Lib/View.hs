@@ -20,7 +20,7 @@ import           Reflex.Host.Class
 import           Web.PathPieces
 
 
-class (Monad m, PathPiece view) => HasView t view err m | m -> view, m -> err, m -> t where
+class (Monad m, PathMultiPiece view) => HasView t view err m | m -> view, m -> err, m -> t where
 
   askView :: m (Dynamic t (Either err view))
   default askView :: (HasView t view err m', m ~ tx m', MonadTrans tx)  => m (Dynamic t (Either err view))
@@ -83,7 +83,7 @@ instance (Adjustable t m, MonadHold t m) => Adjustable t (ViewT t view err m) wh
   traverseIntMapWithKeyWithAdjust f m e = ViewT $ traverseIntMapWithKeyWithAdjust (\k v -> coerce $ f k v) m e
   traverseDMapWithKeyWithAdjustWithMove f m e = ViewT $ traverseDMapWithKeyWithAdjustWithMove (\k v -> coerce $ f k v) m e
 
-instance (Monad m, PathPiece view, Reflex t) => HasView t view err (ViewT t view err m) where
+instance (Monad m, PathMultiPiece view, Reflex t) => HasView t view err (ViewT t view err m) where
   askView = ViewT ask
   setView = ViewT . tellEvent . fmap Right
   setError = ViewT . tellEvent . fmap Left
@@ -94,21 +94,26 @@ instance MonadTrans (ViewT t view err) where
 type LocationHandler t m = Event t Text -> m (Text, Event t Text)
 
 data ViewError = ViewError
+  deriving (Show)
 
-runViewT ::
+runViewT :: forall t m err view a.
   ( Monad m
   , err ~ ViewError
   , MonadFix m
   , MonadHold t m
-  , PathPiece view
+  , PathMultiPiece view
+  , Show err
+  , Show view
   , Reflex t
   ) => LocationHandler t m -> ViewT t view err m a -> m (Dynamic t (Either err view))
 runViewT locHandler (ViewT m) = mdo
-  (initialPath, locationE) <- locHandler $ (fmap ((<>) "/". toPathPiece) . snd . fanEither) viewE
-  viewD <- holdDyn (decodeLoc initialPath) $ leftmost [decodeLoc <$> locationE, viewE]
-  (_result, viewE) <- runEventWriterT $ runReaderT m viewD
+  (initialPath, locationE) <- locHandler $ traceEvent "debug" $ (fmap (T.concat . (:) "/" . toPathMultiPiece) . snd . fanEither) viewE
+  viewD <- holdDyn (decodeLoc $ T.splitOn "/" initialPath) $ leftmost [decodeLoc <$> (T.splitOn "/" <$> locationE), viewE]
+  (_result, viewE) <- runEventWriterT $ runReaderT m (traceDyn "debug" viewD)
   pure viewD
-  where decodeLoc t = maybe (Left ViewError) Right $ fromPathPiece $ T.dropWhile ((==) '/' )t
+  where
+    decodeLoc :: [Text] -> Either ViewError view
+    decodeLoc t = maybe (Left ViewError) Right $ fromPathMultiPiece $ dropWhile ((==) "") t
 
 constLocHandler :: (Monad m, Reflex t) => Text -> LocationHandler t m
 constLocHandler path = pure . const (path, never)
@@ -125,7 +130,7 @@ linkTo :: forall t m a view err. (DomBuilder t m, HasView t view err m) => view 
 linkTo v w = do
   let cfg = (def :: ElementConfig EventResult t (DomBuilderSpace m))
         & elementConfig_eventSpec %~ addEventSpecFlags (Proxy :: Proxy (DomBuilderSpace m)) Click (const preventDefault)
-        & elementConfig_initialAttributes .~ "href" =: ("/" <> toPathPiece v)
+        & elementConfig_initialAttributes .~ "href" =: ("/" <> (T.concat $ toPathMultiPiece v))
   (e, a) <- element "a" cfg w
   setView $ v <$ domEvent Click e
   pure a

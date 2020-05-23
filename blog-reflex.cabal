@@ -55,6 +55,7 @@ common shared
     , cookie
     , cryptonite
     , dependent-sum
+    , generics-sop
     , ghcjs-dom
     , hashable
     , jsaddle
@@ -71,15 +72,15 @@ common shared
     , text
     , transformers
     , unliftio
-    
+    , validation-selective
+
 common shared-ghc
   import: shared
   hs-source-dirs: src-ghc
   if impl(ghcjs)
     buildable: False
   build-depends:
-      generics-sop
-    , http-client
+      http-client
     , http-types
     , req
     , sessionula
@@ -87,7 +88,6 @@ common shared-ghc
     , sessionula-file
     , sessionula-wai
     , squeal-postgresql
-    , validation-selective
     , wai
     , wai-cors
     , wai-extra

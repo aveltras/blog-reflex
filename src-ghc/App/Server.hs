@@ -7,6 +7,7 @@ import qualified Data.CaseInsensitive         as CI
 import           Data.Constraint.Extras
 import qualified Data.Map                     as Map
 import           Data.Some
+import qualified Data.Text                    as T
 import qualified Data.Text.Encoding           as T
 import           Network.HTTP.Req
 import qualified Network.HTTP.Req             as Req
@@ -128,9 +129,21 @@ reqXhrHandler opts = performEvent . fmap toXhrRequest
 
 handler :: RequestG a -> RIO () (Either String a)
 handler = \case
+
   RequestG1 -> pure $ pure True
   RequestG2 _int -> pure $ pure _int
+
   SendMessage _msg -> pure $ pure True
+  GetArticle -> undefined
+  GetArticles -> undefined
+  GetPage -> undefined
+  Login -> undefined
+
+  Logout -> undefined
+  CreateArticle -> undefined
+  UpdateArticle -> undefined
+  CreatePage -> undefined
+  UpdatePage -> undefined
 
 apiApp :: Application
 apiApp request respond = do
