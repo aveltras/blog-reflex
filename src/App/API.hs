@@ -10,22 +10,19 @@ import           Data.Text
 
 data RequestG :: * -> * where
 
-  RequestG1 :: RequestG Bool
-  RequestG2 :: Int -> RequestG Int
-
   -- Public API
   SendMessage :: Message -> RequestG Bool
-  GetArticle :: RequestG Text
-  GetArticles :: RequestG Text
-  GetPage :: RequestG Text
-  Login :: RequestG Text
+  GetArticle :: Text -> RequestG (Maybe Article)
+  GetArticles :: RequestG [Article]
+  GetPage :: Text -> RequestG (Maybe Page)
+  Login :: Text -> Text -> RequestG Bool
 
   -- Protected API
-  Logout :: RequestG Text
-  CreateArticle :: RequestG Int
-  UpdateArticle :: RequestG Int
-  CreatePage :: RequestG Int
-  UpdatePage :: RequestG Int
+  Logout :: RequestG ()
+  CreateArticle :: Article -> RequestG Int
+  UpdateArticle :: ArticleId -> Article -> RequestG Int
+  CreatePage :: Page -> RequestG Int
+  UpdatePage :: PageId -> Page -> RequestG Int
 
 deriveJSONGADT ''RequestG
 deriveArgDict ''RequestG

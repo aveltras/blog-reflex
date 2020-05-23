@@ -40,6 +40,7 @@ data View = HomeP
           deriving (Show)
 
 instance PathMultiPiece View where
+
   fromPathMultiPiece = \case
     [] -> Just HomeP
     ["contact"] -> Just ContactP
@@ -48,6 +49,7 @@ instance PathMultiPiece View where
     ["blog", slug] -> Just $ BlogPostP slug
     [slug] -> Just $ PageP slug
     _ -> Nothing
+
   toPathMultiPiece = \case
     HomeP -> []
     ContactP -> ["contact"]
@@ -76,6 +78,7 @@ headWidget Config{..} headD = do
 
 bodyWidget :: forall t m js. (MonadFix m, DynamicWriter t Text m, DomBuilder t m, HasSource t RequestG m, MonadHold t m, HasView t View ViewError m, Prerender js t m, PostBuild t m) => m ()
 bodyWidget = do
+  nav
   viewD <- askView
   void $ dyn $ viewD <&> \case
     Right v -> case v of
@@ -91,23 +94,30 @@ bodyWidget = do
         linkTo HomeP $ text "go home"
         linkTo ContactP $ text "go contact"
 
+nav :: AppWidget t js m => m ()
+nav = do
+  linkTo HomeP $ text "Home"
+  linkTo ContactP $ text "Contact"
+  linkTo LoginP $ text "Login"
+  linkTo BlogP $ text "Blog"
+  linkTo (BlogPostP "tac") $ text "Blog Post"
+  linkTo (PageP "page") $ text "Page"
+
 homepage :: AppWidget t js m => m ()
 homepage = do
   el "h1" $ text "Homepage"
   buildE <- getPostBuild
   tellDyn $ constDyn "home"
-  text "home"
-  linkTo ContactP $ text "go contact"
   clickE <- button "click"
-  responseE <- requesting $ RequestG1 <$ leftmost [clickE, buildE]
-  dataD <- holdDyn (Left "no response") responseE
-  prerender_ (el "div" $ display dataD) (el "div" $ display dataD)
+  blank
+  -- responseE <- requesting $ RequestG1 <$ leftmost [clickE, buildE]
+  -- dataD <- holdDyn (Left "no response") responseE
+  -- prerender_ (el "div" $ display dataD) (el "div" $ display dataD)
 
 contact :: forall t js m. AppWidget t js m => m ()
 contact = mdo
   el "h1" $ text "Contact"
   tellDyn $ constDyn "contact"
-  linkTo HomeP $ text "go home"
 
   nameI <- inputElement $ (def :: InputElementConfig EventResult t (DomBuilderSpace m)) & inputElementConfig_elementConfig .~ (def & elementConfig_initialAttributes .~ ("tacotac" =: "test"))
   emailI <- el "div" $ inputElement def <* dyn nameErrD

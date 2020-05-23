@@ -7,7 +7,6 @@ import qualified Data.CaseInsensitive         as CI
 import           Data.Constraint.Extras
 import qualified Data.Map                     as Map
 import           Data.Some
-import qualified Data.Text                    as T
 import qualified Data.Text.Encoding           as T
 import           Network.HTTP.Req
 import qualified Network.HTTP.Req             as Req
@@ -22,6 +21,7 @@ import           Reflex.Dom.Core              hiding (Error)
 import           RIO
 import qualified Sessionula                   as Session (defaultConfig, setup)
 import           Sessionula.Backend.File
+import qualified Sessionula.Extra             as Session
 import qualified Sessionula.Frontend.Wai      as Session
 import           Squeal.PostgreSQL
 import           System.Environment
@@ -30,6 +30,8 @@ import           App.API
 import           App.Database.Schema
 import           App.Env
 import           App.Frontend
+import           App.Types
+import           App.Web.Types
 
 import           Lib.Iso
 import           Lib.Source
@@ -37,11 +39,6 @@ import           Lib.View
 
 mkStaticApp "static"
 
--- graphqlApp :: Env -> Application
--- graphqlApp env request respond = do
---   bs <- lazyRequestBody request
---   resp <- runRIO (Ctx env $ Session.extractSession request) $ interpreter rootResolver bs
---   respond $ responseLBS ok200 [ (hContentType, "application/json") ] resp
 
 app :: Application
 app request respond = do
@@ -78,7 +75,7 @@ run buildApps = do
   dbConnStr <- C8S.pack <$> getEnv "DATABASE_URL"
 
   pool <- createConnectionPool dbConnStr 1 10 1
-  let _env = Env pool
+  let env = Env pool
 
   -- withConnection dbConnStr $ migrateDown migrations
   withConnection dbConnStr $ migrateUp migrations
@@ -106,7 +103,7 @@ run buildApps = do
 
     vhosts = otherApps <> [ (Just "static", gzip def $ staticApp True)
                           -- , (Just "graphql", applyCors $ sessionMiddleware $ graphqlApp env)
-                          , (Just "graphql", applyCors $ sessionMiddleware $ apiApp)
+                          , (Just "graphql", applyCors $ sessionMiddleware $ apiApp env)
                           , (Nothing, applyCors app)
                           ]
 
@@ -127,29 +124,30 @@ reqXhrHandler opts = performEvent . fmap toXhrRequest
                            opts -- query params, headers, explicit port number, etc.
 
 
-handler :: RequestG a -> RIO () (Either String a)
-handler = \case
+handler :: RequestG a -> RIO Ctx (Either String a)
+handler = fmap Right . \case
 
-  RequestG1 -> pure $ pure True
-  RequestG2 _int -> pure $ pure _int
-
-  SendMessage _msg -> pure $ pure True
-  GetArticle -> undefined
+  SendMessage _msg -> pure True
+  GetArticle slug -> undefined
   GetArticles -> undefined
-  GetPage -> undefined
-  Login -> undefined
+  GetPage slug -> undefined
 
-  Logout -> undefined
-  CreateArticle -> undefined
-  UpdateArticle -> undefined
-  CreatePage -> undefined
-  UpdatePage -> undefined
+  Login _email _password -> do
+    Session.authenticate $ UserId 5
+    pure True
 
-apiApp :: Application
-apiApp request respond = do
+  Logout -> Session.logout
+
+  CreateArticle _ -> undefined
+  UpdateArticle _ _ -> undefined
+  CreatePage _ -> undefined
+  UpdatePage _ _ -> undefined
+
+apiApp :: Env -> Application
+apiApp env request respond = do
   bs <- lazyRequestBody request
   case decode' bs of
     Nothing -> respond $ responseLBS status400 [ (hContentType, "application/json") ] ""
     Just (Some appRequest) -> do
-      resp <- runRIO () $ handler appRequest
-      respond $ responseLBS ok200 [ (hContentType, "application/json") ] $ has @ToJSON appRequest $ encode resp
+      resp <- runRIO (Ctx env $ Session.extractSession request) $ handler appRequest
+      respond $ responseLBS ok200 [ (hContentType, "application/json") ] $ has @ToJSON appRequest $ encode $ resp

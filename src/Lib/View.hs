@@ -107,9 +107,9 @@ runViewT :: forall t m err view a.
   , Reflex t
   ) => LocationHandler t m -> ViewT t view err m a -> m (Dynamic t (Either err view))
 runViewT locHandler (ViewT m) = mdo
-  (initialPath, locationE) <- locHandler $ traceEvent "debug" $ (fmap (T.concat . (:) "/" . toPathMultiPiece) . snd . fanEither) viewE
+  (initialPath, locationE) <- locHandler $ (fmap ((<>) "/" . T.intercalate "/" . toPathMultiPiece) . snd . fanEither) viewE
   viewD <- holdDyn (decodeLoc $ T.splitOn "/" initialPath) $ leftmost [decodeLoc <$> (T.splitOn "/" <$> locationE), viewE]
-  (_result, viewE) <- runEventWriterT $ runReaderT m (traceDyn "debug" viewD)
+  (_result, viewE) <- runEventWriterT $ runReaderT m viewD
   pure viewD
   where
     decodeLoc :: [Text] -> Either ViewError view
