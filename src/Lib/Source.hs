@@ -15,9 +15,6 @@ import           Data.Constraint.Forall (ForallF)
 import           Data.Hashable
 import           Data.Map               (Map)
 import qualified Data.Map               as Map
-import           Data.Morpheus.Client
-import           Data.Morpheus.Error
-import           Data.Morpheus.Types.IO
 import           Data.Proxy             (Proxy (..))
 import qualified Data.Text.Encoding     as T
 import           GHCJS.DOM.Types        (MonadJSM)
@@ -106,8 +103,6 @@ safeHead = \case
   [] -> Nothing
   x:_ -> Just x
 
-data IsGraphQLQuery query = (FromJSON query, Fetch query, Show query) => IsGraphQLQuery { unGraphQLQuery :: Args query }
-
 type WireFormat = BS.ByteString
 
 gadtCodec :: forall request response. (ForallF ToJSON request, Has FromJSON request) => request response -> (WireFormat, WireFormat -> Either String response)
@@ -121,15 +116,6 @@ gadtCodec request = (toWire, fromWire)
           Error err         -> Left err
           Success (Left a)  -> Left a
           Success (Right a) -> Right a
-
-graphqlCodec :: forall request. IsGraphQLQuery request -> (WireFormat, WireFormat -> Either String request)
-graphqlCodec (IsGraphQLQuery args) = (toWire, fromWire)
-  where
-    toWire = BL.toStrict $ encode $ buildReq (Proxy :: Proxy request) args
-    fromWire wire = eitherDecodeStrict wire >>= \case
-      JSONResponse { responseData = Just x } -> Right x
-      JSONResponse { responseErrors = Just errors } -> Left $ renderGQLErrors errors
-      invalidResponse -> Left $ show invalidResponse
 
 reflexXhrHandler :: (XhrConstraints t m) => XhrRequestConfig () -> Event t (Map Int WireFormat) -> m (Event t (Map Int WireFormat))
 reflexXhrHandler xhrConfig requestsE = do

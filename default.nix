@@ -53,11 +53,6 @@ in
     sessionula-hasql = null;
     sessionula-hedis = null;
     sessionula-wai = dontCheck (super.callCabal2nix "sessionula-wai" "${sessionSrc}/frontend/sessionula-wai" {});
-
-    
-    morpheus-graphql = self.callCabal2nix "morpheus-graphql" morpheusSrc {};
-    morpheus-graphql-core = self.callCabal2nix "morpheus-graphql-core" "${morpheusSrc}/morpheus-graphql-core" {};
-    morpheus-graphql-client = self.callCabal2nix "morpheus-graphql-client" "${morpheusSrcLocal}/morpheus-graphql-client" {};
   };
   
   shellToolOverrides = self: super: with pkgs; with haskell.lib;

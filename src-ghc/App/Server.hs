@@ -8,9 +8,7 @@ import qualified Data.ByteString.Char8        as C8S
 import qualified Data.ByteString.Lazy         as BL
 import qualified Data.CaseInsensitive         as CI
 import           Data.Constraint.Extras
-import           Data.Constraint.Forall       (ForallF)
 import qualified Data.Map                     as Map
-import           Data.Morpheus                (interpreter)
 import           Data.Some
 import qualified Data.Text.Encoding           as T
 import           Network.HTTP.Req
@@ -34,7 +32,6 @@ import           App.API
 import           App.Database.Schema
 import           App.Env
 import           App.Frontend
-import           App.Web.GraphQL
 import           App.Web.Types
 
 import           Lib.Iso
@@ -43,11 +40,11 @@ import           Lib.View
 
 mkStaticApp "static"
 
-graphqlApp :: Env -> Application
-graphqlApp env request respond = do
-  bs <- lazyRequestBody request
-  resp <- runRIO (Ctx env $ Session.extractSession request) $ interpreter rootResolver bs
-  respond $ responseLBS ok200 [ (hContentType, "application/json") ] resp
+-- graphqlApp :: Env -> Application
+-- graphqlApp env request respond = do
+--   bs <- lazyRequestBody request
+--   resp <- runRIO (Ctx env $ Session.extractSession request) $ interpreter rootResolver bs
+--   respond $ responseLBS ok200 [ (hContentType, "application/json") ] resp
 
 app :: Application
 app request respond = do
@@ -133,46 +130,16 @@ reqXhrHandler opts = performEvent . fmap toXhrRequest
                            opts -- query params, headers, explicit port number, etc.
 
 
-
-
-handler :: RequestG a -> IO (Either String a)
+handler :: RequestG a -> RIO () (Either String a)
 handler = \case
   RequestG1 -> pure $ pure True
-  (RequestG2 int) -> pure $ pure int
+  RequestG2 int -> pure $ pure int
 
 apiApp :: Application
 apiApp request respond = do
   bs <- lazyRequestBody request
-  case decode' bs of -- No instance for FromJSON (RequestG a0)
+  case decode' bs of
     Nothing -> respond $ responseLBS status400 [ (hContentType, "application/json") ] ""
     Just (Some req) -> do
-      resp <- handler req
+      resp <- runRIO () $ handler req
       respond $ responseLBS ok200 [ (hContentType, "application/json") ] $ has @ToJSON req $ encode resp
-
-
-
-
-  -- let resp = undefined
-  -- resp <- runRIO (Ctx env $ Session.extractSession request) $ interpreter rootResolver bs
-  -- respond $ responseLBS ok200 [ (hContentType, "application/json") ] resp
-
-  -- undefined
-
--- wsApp ::
---   ( Has ToJSON request
---   , FromJSON (Some request)
---   ) => (forall response. request response -> IO (DataSourceResponse response)) -> ServerApp
--- wsApp handler pending_conn = do
---   conn <- acceptRequest pending_conn
---   forever $ do
---     bsReq <- receiveData conn
---     forkPingThread conn 30
---     case decodeTag bsReq of
---         Nothing -> return ()
---         Just (int, val) ->
---           case fromJSON val of
---             Error _ -> return ()
---             Success (Some request) -> do
---               response <- handler request
---               print $ has @ToJSON request $ encode (int, response)
---               sendBinaryData conn $ has @ToJSON request $ encode (int, response)

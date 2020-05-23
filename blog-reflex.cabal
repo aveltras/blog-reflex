@@ -60,8 +60,6 @@ common shared
     , jsaddle
     , lens
     , monoidal-containers
-    , morpheus-graphql-core
-    , morpheus-graphql-client
     , mtl
     , path-pieces
     , random
@@ -83,7 +81,6 @@ common shared-ghc
       generics-sop
     , http-client
     , http-types
-    , morpheus-graphql
     , req
     , sessionula
     , sessionula-extra
