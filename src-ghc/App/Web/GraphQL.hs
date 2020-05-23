@@ -56,4 +56,4 @@ logoutResolver :: Resolver MUTATION () (RIO Ctx) Bool
 logoutResolver = error "not implemented"
 
 sendMessageResolver :: MutationSendMessageArgs -> Resolver MUTATION () (RIO Ctx) Bool
-sendMessageResolver = error "not implemented"
+sendMessageResolver MutationSendMessageArgs {..} = pure True

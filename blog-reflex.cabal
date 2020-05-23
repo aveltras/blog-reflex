@@ -87,6 +87,7 @@ common shared-ghc
     , sessionula-file
     , sessionula-wai
     , squeal-postgresql
+    , validation-selective
     , wai
     , wai-cors
     , wai-extra

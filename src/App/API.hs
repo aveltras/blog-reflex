@@ -11,3 +11,9 @@ defineByDocumentFile "schema.graphql" [gql|
     }
   }
 |]
+
+defineByDocumentFile "schema.graphql" [gql|
+  mutation SendMessage ($msg: Message!) {
+    sendMessage (message: $msg)
+  }
+|]

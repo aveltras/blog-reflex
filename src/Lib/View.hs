@@ -61,6 +61,7 @@ newtype ViewT t view err m a
     ( Functor
     , Applicative
     , Monad
+    , MonadFix
     , MonadIO
     , MonadHold t
     , MonadSample t

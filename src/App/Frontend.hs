@@ -1,16 +1,20 @@
-{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveAnyClass        #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 
 module App.Frontend where
 
 import           Control.Monad               (void)
+import           Control.Monad.Fix           (MonadFix)
 import           Control.Monad.IO.Class      (MonadIO)
-import           Data.Aeson
+import           Data.Aeson                  hiding (Success)
 import           Data.Text                   (Text)
 import qualified Data.Text                   as T
 import qualified Data.Text.Encoding          as T
 import           GHC.Generics
 import           Language.Javascript.JSaddle (JSM)
 import           Reflex.Dom.Core
+import           RIO                         hiding (display)
+import           Validation
 import           Web.PathPieces
 
 
@@ -42,29 +46,91 @@ instance PathPiece View where
 
 headWidget :: (DomBuilder t m, PostBuild t m, Prerender js t m) => Config -> Dynamic t Text -> m ()
 headWidget Config{..} headD = do
-  elAttr "script" ("src" =: configScript) blank -- "http://jsaddle.blog.local:3000/jsaddle.js"
-  elAttr "link" ("rel" =: "stylesheet" <> "href" =: configCss) blank -- "http://static.blog.local:3000/" <> main_css
+  elAttr "script" ("src" =: configScript) blank
+  elAttr "link" ("rel" =: "stylesheet" <> "href" =: configCss) blank
   prerender_ (el "title" $ dynText headD) (el "title" $ dynText headD)
 
-bodyWidget :: (DynamicWriter t Text m, MonadIO (Performable m), DomBuilder t m, TriggerEvent t m, HasSource t IsGraphQLQuery m, MonadHold t m, HasView t View ViewError m, PerformEvent t m, Prerender js t m, PostBuild t m) => m ()
+bodyWidget :: forall t m js. (MonadFix m, DynamicWriter t Text m, MonadIO (Performable m), DomBuilder t m, TriggerEvent t m, HasSource t IsGraphQLQuery m, MonadHold t m, HasView t View ViewError m, PerformEvent t m, Prerender js t m, PostBuild t m) => m ()
 bodyWidget = do
   viewD <- askView
-  void $ dyn $ (\case
-                   Right v -> case v of
-                     Homepage    -> do
-                       tellDyn $ constDyn "home"
-                       text "home"
-                       linkTo Contact $ text "go contact"
-                       graphQLwidget
-                     Contact -> do
-                       tellDyn $ constDyn "contact"
-                       linkTo Homepage $ text "go home"
-                   Left e -> case e of
-                     ViewError -> do
-                       linkTo Homepage $ text "go home"
-                       linkTo Contact $ text "go contact"
-               ) <$> viewD
+  void $ dyn $ viewD <&> \case
+    Right v -> case v of
+      Homepage    -> do
+        tellDyn $ constDyn "home"
+        text "home"
+        linkTo Contact $ text "go contact"
+        graphQLwidget
+      Contact -> mdo
+        text "contact"
+        tellDyn $ constDyn "contact"
+        linkTo Homepage $ text "go home"
 
+        nameI <- inputElement $ (def :: InputElementConfig EventResult t (DomBuilderSpace m)) & inputElementConfig_elementConfig .~ (def & elementConfig_initialAttributes .~ ("tacotac" =: "test"))
+        emailI <- el "div" $ inputElement def <* dyn nameErrD
+        phoneI <- inputElement def
+        messageI <- textAreaElement def
+
+        sendE <- buttonClass "tac" "Send"
+
+        let formD = MessageForm
+              <$> _inputElement_value nameI
+              <*> _inputElement_value emailI
+              <*> _inputElement_value phoneI
+              <*> _textAreaElement_value messageI
+
+            messageD = validateMessageForm <$> formD
+
+            nameErrD = messageD <&> \case
+              Success _ -> text "success"
+              Failure err -> text $ foldMap (T.pack . show) err
+
+        responseE :: Event t (Either String SendMessage) <- requesting $ (IsGraphQLQuery . SendMessageArgs) <$> (fmapMaybe id $ successToMaybe <$> tagPromptlyDyn messageD sendE)
+        responseD <- holdDyn (Left "no response yet") responseE
+
+        display responseD
+        display messageD
+
+        blank
+
+    Left e -> case e of
+      ViewError -> do
+        linkTo Homepage $ text "go home"
+        linkTo Contact $ text "go contact"
+
+buttonClass :: DomBuilder t m => Text -> Text -> m (Event t ())
+buttonClass c s = do
+  (e, _) <- elAttr' "button" ("type" =: "button" <> "class" =: c) $ text s
+  return $ domEvent Click e
+
+
+data MessageForm = MessageForm
+  { messageFormName  :: Text
+  , messageFormEmail :: Text
+  , messageFormPhone :: Text
+  , messageFormBody  :: Text
+  }
+
+data MessageError
+  = EmptyName
+  | EmptyEmail
+  | EmptyBody
+  deriving stock (Show)
+
+validateRequired :: Text -> MessageError -> Validation (NonEmpty MessageError) Text
+validateRequired name err = name <$
+  failureIf (T.length name < 1) err
+
+validateMessageForm :: MessageForm -> Validation (NonEmpty MessageError) Message
+validateMessageForm MessageForm {..} = Message
+  <$> validateRequired messageFormName EmptyName
+  <*> validateRequired messageFormEmail EmptyEmail
+  <*> (Success $ Just messageFormPhone)
+  <*> validateRequired messageFormBody EmptyBody
+
+mkMessage :: (Text, Text, Text, Text) -> Either (Text, Text, Text, Text) Message
+mkMessage (name, email, phone, body) = do
+  -- Left (name, email, phone, body)
+  pure $ Message name email (Just phone) body
 
 
 graphQLwidget :: (MonadIO (Performable m), Prerender js t m, HasSource t IsGraphQLQuery m, TriggerEvent t m, PostBuild t m, MonadHold t m, PerformEvent t m, DomBuilder t m) => m ()

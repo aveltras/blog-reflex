@@ -45,6 +45,8 @@ in
     with-utf8 = super.callHackageDirect { pkg = "with-utf8"; ver = "1.0.1.0"; sha256 = "129bsyawcmfig1m3cch91d4nn6wlji3g5lm26jkf08yp54l76lrq"; } {};
     free-categories = super.callHackageDirect { pkg = "free-categories"; ver = "0.2.0.0"; sha256 = "1grlvy8r7nbb7g8sx5a5x6az03bzli510zjpp5dpliidvajncci9"; } {};
 
+    validation-selective = dontCheck (super.callHackageDirect { pkg = "validation-selective"; ver = "0.1.0.0"; sha256 = "1amxldpi7snw5whyj5jb6ry7prwfws97g60mhvnkip6ydzr0iay3"; } {});
+
     sessionula = dontCheck (super.callCabal2nix "sessionula" "${sessionSrc}/sessionula" {});
     sessionula-extra = dontCheck (super.callCabal2nix "sessionula-extra" "${sessionSrc}/sessionula-extra" {});
     sessionula-file = dontCheck (super.callCabal2nix "sessionula-file" "${sessionSrc}/backend/sessionula-file" {});

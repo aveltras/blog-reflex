@@ -13,16 +13,14 @@ import           Data.Text                   (Text)
 import qualified Data.Text                   as T
 import qualified Data.Text.Encoding          as T
 import qualified Data.Text.Lazy              as TL
-import           Reflex.Dom.Core
-import           Reflex.Host.Class
-import           Type.Reflection
-
-
 import qualified GHCJS.DOM                   as DOM
 import qualified GHCJS.DOM.HTMLScriptElement as DOM
 import qualified GHCJS.DOM.ParentNode        as DOM
 import qualified GHCJS.DOM.Types             as DOM
 import           Language.Javascript.JSaddle (JSM)
+import           Reflex.Dom.Core
+import           Reflex.Host.Class
+import           Type.Reflection
 
 {-# INLINE renderStatic' #-}
 renderStatic' :: StaticWidget x (Dynamic DomTimeline a) -> IO (a, BS.ByteString)

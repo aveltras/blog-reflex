@@ -20,8 +20,11 @@ import           RIO
 import qualified Sessionula                   as Session (defaultConfig, setup)
 import           Sessionula.Backend.File
 import qualified Sessionula.Frontend.Wai      as Session
+import           Squeal.PostgreSQL
 import           System.Environment
 
+import           App.Database.Schema
+import           App.Env
 import           App.Frontend
 import           App.Web.GraphQL
 import           App.Web.Types
@@ -34,9 +37,8 @@ mkStaticApp "static"
 
 graphqlApp :: Application
 graphqlApp request respond = do
-  let sessionHandle = Session.extractSession request
   bs <- lazyRequestBody request
-  resp <- runRIO (Ctx sessionHandle) $ interpreter rootResolver bs
+  resp <- runRIO (Ctx Env $ Session.extractSession request) $ interpreter rootResolver bs
   respond $ responseLBS ok200 [ (hContentType, "application/json") ] resp
 
 app :: Application
@@ -71,6 +73,14 @@ run buildApps = do
   domain <- getEnv "APP_DOMAIN"
   port :: Int <- read <$> getEnv "APP_PORT"
   sessionsDir <- getEnv "APP_SESSIONS_DIR"
+  dbConnStr <- C8S.pack <$> getEnv "DATABASE_URL"
+
+  pool <- createConnectionPool dbConnStr 1 10 1
+
+  -- withConnection dbConnStr $ migrateDown migrations
+  withConnection dbConnStr $ migrateUp migrations
+
+  -- usingConnectionPool pool $ User.insert "romain.viallard@outlook.fr" "tac"
 
   manager <- Session.setup Session.defaultConfig =<< fileStorage sessionsDir
 
