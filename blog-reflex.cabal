@@ -53,7 +53,6 @@ common shared
     , constraints-extras
     , containers
     , cookie
-    , cryptonite
     , dependent-sum
     , generics-sop
     , ghcjs-dom
@@ -80,7 +79,8 @@ common shared-ghc
   if impl(ghcjs)
     buildable: False
   build-depends:
-      http-client
+      cryptonite
+    , http-client
     , http-types
     , req
     , sessionula

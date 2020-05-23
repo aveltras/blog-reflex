@@ -31,13 +31,15 @@ data Config = Config
   } deriving stock (Generic)
     deriving anyclass (FromJSON, ToJSON)
 
-data View = HomeP
-          | ContactP
-          | LoginP
-          | BlogP
-          | BlogPostP Text
-          | PageP Text
-          deriving (Show)
+data View
+  = HomeP
+  | ContactP
+  | LoginP
+  | BlogP
+  | BlogPostP Text
+  | PageP Text
+  | AdminP AdminView
+  deriving (Show)
 
 instance PathMultiPiece View where
 
@@ -47,6 +49,7 @@ instance PathMultiPiece View where
     ["login"] -> Just LoginP
     ["blog"] -> Just BlogP
     ["blog", slug] -> Just $ BlogPostP slug
+    "admin":x -> AdminP <$> fromPathMultiPiece x
     [slug] -> Just $ PageP slug
     _ -> Nothing
 
@@ -57,6 +60,30 @@ instance PathMultiPiece View where
     BlogP -> ["blog"]
     BlogPostP slug -> ["blog", slug]
     PageP slug -> [slug]
+    AdminP a -> "admin" : toPathMultiPiece a
+
+
+data AdminView
+  = AdminDashboardP
+  | AdminBlogP
+  | AdminPageP
+  | AdminMessageP
+  deriving (Show)
+
+instance PathMultiPiece AdminView where
+
+  fromPathMultiPiece = \case
+    [] -> Just AdminDashboardP
+    ["blog"] -> Just AdminBlogP
+    ["page"] -> Just AdminPageP
+    ["message"] -> Just AdminMessageP
+    _ -> Nothing
+
+  toPathMultiPiece = \case
+    AdminDashboardP -> []
+    AdminBlogP -> ["blog"]
+    AdminPageP -> ["page"]
+    AdminMessageP -> ["message"]
 
 type AppWidget t js m =
   ( MonadFix m
@@ -69,7 +96,6 @@ type AppWidget t js m =
   , PostBuild t m
   )
 
-
 headWidget :: (DomBuilder t m, PostBuild t m, Prerender js t m) => Config -> Dynamic t Text -> m ()
 headWidget Config{..} headD = do
   elAttr "script" ("src" =: configScript) blank
@@ -78,21 +104,34 @@ headWidget Config{..} headD = do
 
 bodyWidget :: forall t m js. (MonadFix m, DynamicWriter t Text m, DomBuilder t m, HasSource t RequestG m, MonadHold t m, HasView t View ViewError m, Prerender js t m, PostBuild t m) => m ()
 bodyWidget = do
-  nav
-  viewD <- askView
-  void $ dyn $ viewD <&> \case
-    Right v -> case v of
-      HomeP          -> homepage
-      ContactP       -> contact
-      LoginP         -> login
-      BlogP          -> blog
-      BlogPostP slug -> blogPost slug
-      PageP slug     -> page slug
+  elClass "header" "bg-red-500 text-white p-4" $ do
+    elClass "nav" "flex items-center justify-between container mx-auto" $ nav
+  elClass "div" "container mx-auto" $ do
+    viewD <- askView
+    void $ dyn $ viewD <&> \case
+      Right v -> case v of
+        HomeP          -> homepage
+        ContactP       -> contact
+        LoginP         -> login
+        BlogP          -> blog
+        BlogPostP slug -> blogPost slug
+        PageP slug     -> page slug
+        AdminP p -> do
 
-    Left e -> case e of
-      ViewError -> do
-        linkTo HomeP $ text "go home"
-        linkTo ContactP $ text "go contact"
+          linkTo (AdminP AdminDashboardP) $ text "Dashboard"
+          linkTo (AdminP AdminBlogP) $ text "Blog"
+          linkTo (AdminP AdminPageP) $ text "Page"
+          linkTo (AdminP AdminMessageP) $ text "Messages"
+
+          case p of
+            AdminDashboardP -> text "dashboard"
+            AdminBlogP      -> text "admin - Blog"
+            AdminPageP      -> text "admin - Pages"
+            AdminMessageP   -> text "admin - Messages"
+
+      Left e -> case e of
+        ViewError -> do
+          el "h1" $ text "404"
 
 nav :: AppWidget t js m => m ()
 nav = do
@@ -102,6 +141,7 @@ nav = do
   linkTo BlogP $ text "Blog"
   linkTo (BlogPostP "tac") $ text "Blog Post"
   linkTo (PageP "page") $ text "Page"
+  linkTo (AdminP AdminDashboardP) $ text "Dashboard"
 
 homepage :: AppWidget t js m => m ()
 homepage = do
@@ -143,8 +183,15 @@ contact = mdo
 
   display responseD
 
-login :: AppWidget t js m => m ()
-login = el "h1" $ text "Login"
+login :: forall t js m. AppWidget t js m => m ()
+login = do
+  el "h1" $ text "Login"
+  elAttr "label" ("for" =: "email") $ text "Email"
+  emailI <- inputElement $ (def :: InputElementConfig EventResult t (DomBuilderSpace m)) & inputElementConfig_elementConfig .~ (def & elementConfig_initialAttributes .~ ("class" =: "border" <> "id" =: "email"))
+  elAttr "label" ("for" =: "password") $ text "Password"
+  passwordI <- inputElement $ (def :: InputElementConfig EventResult t (DomBuilderSpace m)) & inputElementConfig_elementConfig .~ (def & elementConfig_initialAttributes .~ ("type" =: "password" <> "id" =: "password"))
+  elClass "button" "bg-red-500 text-white py-2 px-4 rounded font-bold" $ text "Login"
+  blank
 
 blog :: AppWidget t js m => m ()
 blog = el "h1" $ text "Blog"
@@ -153,7 +200,10 @@ blogPost :: AppWidget t js m => Text -> m ()
 blogPost slug = el "h1" $ text $ "Blog Post " <> slug
 
 page :: AppWidget t js m => Text -> m ()
-page slug = el "h1" $ text $ "Page " <> slug
+page slug = do
+  buildE <- getPostBuild
+  setError $ ViewError <$ buildE
+  el "h1" $ text $ "Page " <> slug
 
 
 
